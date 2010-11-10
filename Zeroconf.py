@@ -85,7 +85,8 @@ import socket
 import threading
 import select
 import traceback
-
+import logging
+log = logging.getLogger(__name__)
 __all__ = ["Zeroconf", "ServiceInfo", "ServiceBrowser"]
 
 # hook for threads
@@ -269,7 +270,7 @@ class DNSQuestion(DNSEntry):
     def __repr__(self):
         """String representation"""
         return DNSEntry.toString(self, "question", None)
-
+    __str__ = __repr__
 
 class DNSRecord(DNSEntry):
     """A DNS record - like a DNS entry, but has a TTL"""
@@ -555,8 +556,9 @@ class DNSIncoming(object):
                 # so this is left for debugging.  New types
                 # encountered need to be parsed properly.
                 #
-                #print "UNKNOWN TYPE = " + str(info[0])
-                #raise BadTypeInNameException
+                log.warn(
+                    "Unknown DNS query type: %s", info[0]
+                )
                 pass
 
             if rec is not None:
@@ -670,7 +672,7 @@ class DNSOutgoing(object):
     def writeInt(self, value):
         """Writes an unsigned integer to the packet"""
         format = '!I'
-        self.data.append(struct.pack(format, value))
+        self.data.append(struct.pack(format, long(value)))
         self.size += 4
 
     def writeString(self, value, length):
@@ -857,14 +859,15 @@ class Engine(threading.Thread):
             else:
                 try:
                     rr, wr, er = select.select(rs, [], [], self.timeout)
+                except Exception, err:
+                    log.warn( 'Select failure, ignored: %s', err )
+                else:
                     for socket in rr:
                         try:
                             self.readers[socket].handle_read()
-                        except:
+                        except Exception, err:
                             # Ignore errors that occur on shutdown
-                            pass
-                except:
-                    pass
+                            log.error( 'Error handling read: %s', err )
 
     def getReaders(self):
         result = []
@@ -897,7 +900,6 @@ class Listener(object):
 
     It requires registration with an Engine object in order to have
     the read() method called when a socket is availble for reading."""
-    
     def __init__(self, zeroconf):
         self.zeroconf = zeroconf
         self.zeroconf.engine.addReader(self, self.zeroconf.socket)
@@ -912,14 +914,17 @@ class Listener(object):
             if port == _MDNS_PORT:
                 self.zeroconf.handleQuery(msg, _MDNS_ADDR, _MDNS_PORT)
             # If it's not a multicast query, reply via unicast
-            # and multicast
             #
+            # and multicast
             elif port == _DNS_PORT:
                 self.zeroconf.handleQuery(msg, addr, port)
                 self.zeroconf.handleQuery(msg, _MDNS_ADDR, _MDNS_PORT)
+            else:
+                log.error(
+                    "Unknown port: %s", port 
+                )
         else:
             self.zeroconf.handleResponse(msg)
-
 
 class Reaper(threading.Thread):
     """A Reaper is used by this module to remove cache entries that
@@ -928,6 +933,7 @@ class Reaper(threading.Thread):
     def __init__(self, zeroconf):
         threading.Thread.__init__(self)
         self.zeroconf = zeroconf
+        self.daemon = True
         self.start()
 
     def run(self):
@@ -955,6 +961,7 @@ class ServiceBrowser(threading.Thread):
         self.zeroconf = zeroconf
         self.type = type
         self.listener = listener
+        self.daemon = True
         self.services = {}
         self.nextTime = currentTimeMillis()
         self.delay = _BROWSER_TIME
@@ -1047,7 +1054,7 @@ class ServiceInfo(object):
         if server:
             self.server = server
         else:
-            self.server = name
+            self.server = name #'.'.join([x for x in name.split('.') if not x.startswith('_')])
         self.setProperties(properties)
 
     def setProperties(self, properties):
@@ -1109,8 +1116,8 @@ class ServiceInfo(object):
                     result[key] = value
 
             self.properties = result
-        except:
-            traceback.print_exc()
+        except Exception, err:
+            log.error( "Failure composing text: %s", traceback.format_exc() )
             self.properties = None
             
     def getType(self):
@@ -1226,7 +1233,9 @@ class ServiceInfo(object):
                 result += self.text[:17] + "..."
         result += "]"
         return result
-                
+
+
+
 
 class Zeroconf(object):
     """Implementation of Zeroconf Multicast DNS Service Discovery
@@ -1239,35 +1248,10 @@ class Zeroconf(object):
         globals()['_GLOBAL_DONE'] = 0
         if bindaddress is None:
             self.intf = socket.gethostbyname(socket.gethostname())
+            bindaddress = self.intf
         else:
             self.intf = bindaddress
-        self.group = ('', _MDNS_PORT)
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except:
-            # SO_REUSEADDR should be equivalent to SO_REUSEPORT for
-            # multicast UDP sockets (p 731, "TCP/IP Illustrated,
-            # Volume 2"), but some BSD-derived systems require
-            # SO_REUSEPORT to be specified explicity.  Also, not all
-            # versions of Python have SO_REUSEPORT available.  So
-            # if you're on a BSD-based system, and haven't upgraded
-            # to Python 2.3 yet, you may find this library doesn't
-            # work as expected.
-            #
-            pass
-        self.socket.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_TTL, 255)
-        self.socket.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_LOOP, 1)
-        try:
-            self.socket.bind(self.group)
-        except:
-            # Some versions of linux raise an exception even though
-            # the SO_REUSE* options have been set, so ignore it
-            #
-            pass
-        self.socket.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self.intf) + socket.inet_aton('0.0.0.0'))
-        self.socket.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(_MDNS_ADDR) + socket.inet_aton('0.0.0.0'))
+        self.socket = self.create_socket( (bindaddress, _MDNS_PORT) )
 
         self.listeners = []
         self.browsers = []
@@ -1280,6 +1264,45 @@ class Zeroconf(object):
         self.engine = Engine(self)
         self.listener = Listener(self)
         self.reaper = Reaper(self)
+    
+    @classmethod
+    def create_socket( cls, address ):
+        """Create our multicast socket for mDNS usage"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except:
+            # SO_REUSEADDR should be equivalent to SO_REUSEPORT for
+            # multicast UDP sockets (p 731, "TCP/IP Illustrated,
+            # Volume 2"), but some BSD-derived systems require
+            # SO_REUSEPORT to be specified explicity.  Also, not all
+            # versions of Python have SO_REUSEPORT available.  So
+            # if you're on a BSD-based system, and haven't upgraded
+            # to Python 2.3 yet, you may find this library doesn't
+            # work as expected.
+            #
+            pass
+        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_TTL, 255)
+        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_LOOP, 1)
+        try:
+            sock.bind(('',_MDNS_PORT))
+        except Exception, err:
+            # Some versions of linux raise an exception even though
+            # the SO_REUSE* options have been set, so ignore it
+            #
+            log.error('Failure binding: %s', err)
+        interface_ip = address[0] or socket.gethostbyname(socket.gethostname())
+        sock.setsockopt(
+            socket.SOL_IP, socket.IP_MULTICAST_IF, 
+            socket.inet_aton( interface_ip) +
+                socket.inet_aton('0.0.0.0')
+        )
+        sock.setsockopt(
+            socket.SOL_IP, socket.IP_ADD_MEMBERSHIP, 
+            socket.inet_aton(_MDNS_ADDR) + socket.inet_aton('0.0.0.0')
+        )
+        return sock
 
     def isLoopback(self):
         return self.intf.startswith("127.0.0.1")
@@ -1477,14 +1500,21 @@ class Zeroconf(object):
             out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA, 0)
             for question in msg.questions:
                 out.addQuestion(question)
-        
+        log.debug( 'Questions...')
         for question in msg.questions:
+            log.debug( 'Question: %s', question )
             if question.type == _TYPE_PTR:
                 for service in self.services.values():
                     if question.name == service.type:
                         if out is None:
                             out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
                         out.addAnswer(msg, DNSPointer(service.type, _TYPE_PTR, _CLASS_IN, _DNS_TTL, service.name))
+                        # devices such as AAstra phones will not re-query to 
+                        # resolve the pointer, they expect the final IP to show up 
+                        # in the response
+                        out.addAdditionalAnswer(DNSText(service.name, _TYPE_TXT, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.text))
+                        out.addAdditionalAnswer(DNSService(service.name, _TYPE_SRV, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.priority, service.weight, service.port, service.server))
+                        out.addAdditionalAnswer(DNSAddress(service.server, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
             else:
                 try:
                     if out is None:
@@ -1495,6 +1525,7 @@ class Zeroconf(object):
                         for service in self.services.values():
                             if service.server == question.name.lower():
                                 out.addAnswer(msg, DNSAddress(question.name, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
+                                
                     
                     service = self.services.get(question.name.lower(), None)
                     if not service: continue
@@ -1505,19 +1536,24 @@ class Zeroconf(object):
                         out.addAnswer(msg, DNSText(question.name, _TYPE_TXT, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.text))
                     if question.type == _TYPE_SRV:
                         out.addAdditionalAnswer(DNSAddress(service.server, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
-                except:
-                    traceback.print_exc()
+                except Exception, err:
+                    log.error(
+                        'Error handling query: %s',traceback.format_exc()
+                    )
                 
         if out is not None and out.answers:
             out.id = msg.id
             self.send(out, addr, port)
+        else:
+            log.debug( 'No answer for %s', [q for q in msg.questions] )
 
     def send(self, out, addr = _MDNS_ADDR, port = _MDNS_PORT):
         """Sends an outgoing packet."""
         # This is a quick test to see if we can parse the packets we generate
         #temp = DNSIncoming(out.packet())
         try:
-            bytes_sent = self.socket.sendto(out.packet(), 0, (addr, port))
+            packet = out.packet()
+            bytes_sent = self.socket.sendto(packet, 0, (addr, port))
         except:
             # Ignore this, it may be a temporary loss of network connection
             pass
