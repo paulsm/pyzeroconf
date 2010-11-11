@@ -5,6 +5,7 @@ import Zeroconf,socket,os,sys,select,logging
 def main(ip):
     """Create a multicast socket, send a message, check it comes back"""
     sock = Zeroconf.Zeroconf.create_socket( (ip,Zeroconf._MDNS_PORT) )
+    Zeroconf.Zeroconf.join_group( sock, Zeroconf._MDNS_ADDR )
     payload = 'hello world'
     for i in range( 5 ):
         sock.sendto( payload, 0, (Zeroconf._MDNS_ADDR, Zeroconf._MDNS_PORT))
@@ -12,7 +13,7 @@ def main(ip):
         rs,wr,xs = select.select( [sock],[],[], 1.0 )
         data,(addr,port) = sock.recvfrom( 200 )
         if data == payload:
-            print 'Success: looped message received' 
+            print 'Success: looped message received'
             return 0
     print 'Failure: Looped message not received'
     return 1
@@ -21,6 +22,6 @@ if __name__ == "__main__":
     logging.basicConfig( level = logging.DEBUG )
     usage = 'testmulticast.py ip.address'
     if not sys.argv[1:]:
-        print usage 
+        print usage
         sys.exit( 1 )
     sys.exit( main(*sys.argv[1:]) )

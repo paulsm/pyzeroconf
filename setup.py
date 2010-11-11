@@ -16,7 +16,7 @@ if __name__ == "__main__":
         description='Python Zeroconf (mDNS) Library',
         url='http://digitaltorque.ca',
         py_modules=['Zeroconf'],
-        scripts=['Browser.py'],
+        #scripts=['Browser.py'],
         classifiers=[
             'Development Status :: Production',
             'License :: OSI Approved :: LGPL2',
