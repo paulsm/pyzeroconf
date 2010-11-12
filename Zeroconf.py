@@ -536,33 +536,35 @@ class DNSIncoming(object):
             info = struct.unpack(format, self.data[self.offset:self.offset+length])
             self.offset += length
 
-            rec = None
-            if info[0] == _TYPE_A:
-                rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(4))
-            elif info[0] == _TYPE_CNAME or info[0] == _TYPE_PTR:
-                rec = DNSPointer(domain, info[0], info[1], info[2], self.readName())
-            elif info[0] == _TYPE_TXT:
-                rec = DNSText(domain, info[0], info[1], info[2], self.readString(info[3]))
-            elif info[0] == _TYPE_SRV:
-                rec = DNSService(domain, info[0], info[1], info[2], self.readUnsignedShort(), self.readUnsignedShort(), self.readUnsignedShort(), self.readName())
-            elif info[0] == _TYPE_HINFO:
-                rec = DNSHinfo(domain, info[0], info[1], info[2], self.readCharacterString(), self.readCharacterString())
-            elif info[0] == _TYPE_AAAA:
-                rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(16))
-            else:
-                # Try to ignore types we don't know about
-                # this may mean the rest of the name is
-                # unable to be parsed, and may show errors
-                # so this is left for debugging.  New types
-                # encountered need to be parsed properly.
-                #
-                log.warn(
-                    "Unknown DNS query type: %s", info[0]
-                )
-                pass
+            try:
+                rec = None
+                if info[0] == _TYPE_A:
+                    rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(4))
+                elif info[0] == _TYPE_CNAME or info[0] == _TYPE_PTR:
+                    rec = DNSPointer(domain, info[0], info[1], info[2], self.readName())
+                elif info[0] == _TYPE_TXT:
+                    rec = DNSText(domain, info[0], info[1], info[2], self.readString(info[3]))
+                elif info[0] == _TYPE_SRV:
+                    rec = DNSService(domain, info[0], info[1], info[2], self.readUnsignedShort(), self.readUnsignedShort(), self.readUnsignedShort(), self.readName())
+                elif info[0] == _TYPE_HINFO:
+                    rec = DNSHinfo(domain, info[0], info[1], info[2], self.readCharacterString(), self.readCharacterString())
+                elif info[0] == _TYPE_AAAA:
+                    rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(16))
+                else:
+                    # Try to ignore types we don't know about
+                    # this may mean the rest of the name is
+                    # unable to be parsed, and may show errors
+                    # so this is left for debugging.  New types
+                    # encountered need to be parsed properly.
+                    #
+                    log.warn(
+                        "Unknown DNS query type: %s", info[0]
+                    )
 
-            if rec is not None:
-                self.answers.append(rec)
+                if rec is not None:
+                    self.answers.append(rec)
+            except Exception, err:
+                log.warn( "Failure on record type %s, ignoring: %s", info[0], err )
 
     def isQuery(self):
         """Returns true if this is a query"""
@@ -573,9 +575,12 @@ class DNSIncoming(object):
         return (self.flags & _FLAGS_QR_MASK) == _FLAGS_QR_RESPONSE
 
     def readUTF(self, offset, len):
-        """Reads a UTF-8 string of a given length from the packet"""
-        result = self.data[offset:offset+len].decode('utf-8')
-        return result
+        """Reads a UTF-8 string of a given length from the packet
+        
+        TODO: there are cases were non-utf-8 data comes through,
+        we need to decide how to properly handle these.
+        """
+        return self.data[offset:offset+len].decode('utf-8','ignore')
 
     def readName(self):
         """Reads a domain name from the packet"""
@@ -868,6 +873,7 @@ class Engine(threading.Thread):
                         except Exception, err:
                             # Ignore errors that occur on shutdown
                             log.error( 'Error handling read: %s', err )
+                            log.debug( 'Traceback: %s', traceback.format_exc())
 
     def getReaders(self):
         result = []
