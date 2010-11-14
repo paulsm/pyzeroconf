@@ -86,6 +86,7 @@ import threading
 import select
 import traceback
 import logging
+import mcastsocket
 log = logging.getLogger(__name__)
 __all__ = ["Zeroconf", "ServiceInfo", "ServiceBrowser"]
 
@@ -576,7 +577,7 @@ class DNSIncoming(object):
 
     def readUTF(self, offset, len):
         """Reads a UTF-8 string of a given length from the packet
-        
+
         TODO: there are cases were non-utf-8 data comes through,
         we need to decide how to properly handle these.
         """
@@ -1257,8 +1258,8 @@ class Zeroconf(object):
             bindaddress = self.intf
         else:
             self.intf = bindaddress
-        self.socket = self.create_socket( (bindaddress, _MDNS_PORT) )
-        self.join_group( self.socket, _MDNS_ADDR )
+        self.socket = mcastsocket.create_socket( (bindaddress, _MDNS_PORT) )
+        mcastsocket.join_group( self.socket, _MDNS_ADDR )
 
         self.listeners = []
         self.browsers = []
@@ -1271,67 +1272,6 @@ class Zeroconf(object):
         self.engine = Engine(self)
         self.listener = Listener(self)
         self.reaper = Reaper(self)
-
-    @classmethod
-    def create_socket( cls, address, TTL=255, loop=True ):
-        """Create our multicast socket for mDNS usage
-
-        Creates a multicast UDP socket with multicast address configured for the
-        ip in address[0], and bound on all interfaces with port address[1].
-        Configures TTL and loop-back operation
-
-        """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except:
-            # SO_REUSEADDR should be equivalent to SO_REUSEPORT for
-            # multicast UDP sockets (p 731, "TCP/IP Illustrated,
-            # Volume 2"), but some BSD-derived systems require
-            # SO_REUSEPORT to be specified explicity.  Also, not all
-            # versions of Python have SO_REUSEPORT available.  So
-            # if you're on a BSD-based system, and haven't upgraded
-            # to Python 2.3 yet, you may find this library doesn't
-            # work as expected.
-            #
-            pass
-        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_TTL, TTL)
-        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_LOOP, int(bool(loop)))
-        try:
-            # Note: multicast is *not* working if we don't bind on all interfaces, most likely
-            # because the 224.* isn't getting mapped to the address of the interface...
-            sock.bind(('',address[1]))
-        except Exception, err:
-            # Some versions of linux raise an exception even though
-            # the SO_REUSE* options have been set, so ignore it
-            #
-            log.error('Failure binding: %s', err)
-        if address[0]:
-            # listen/send on a single interface...
-            interface_ip = address[0] or socket.gethostbyname(socket.gethostname())
-            sock.setsockopt(
-                socket.SOL_IP, socket.IP_MULTICAST_IF,
-                socket.inet_aton( interface_ip) +
-                    socket.inet_aton('0.0.0.0')
-            )
-        return sock
-    @classmethod
-    def join_group( cls, sock, group ):
-        """Add our socket to this multicast group"""
-        log.info( 'Joining multicast group: %s', group )
-        sock.setsockopt(
-            socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
-            socket.inet_aton(group) + socket.inet_aton('0.0.0.0')
-        )
-    @classmethod
-    def leave_group( cls, sock, group ):
-        """Remove our socket from this multicast group"""
-        log.info( 'Leaving multicast group: %s', group )
-        sock.setsockopt(
-            socket.SOL_IP, socket.IP_DROP_MEMBERSHIP,
-            socket.inet_aton(group) + socket.inet_aton('0.0.0.0')
-        )
 
     def isLoopback(self):
         return self.intf.startswith("127.0.0.1")
@@ -1595,7 +1535,7 @@ class Zeroconf(object):
             self.notifyAll()
             self.engine.notify()
             self.unregisterAllServices()
-            self.leave_group( self.socket, _MDNS_ADDR )
+            mcastsocket.leave_group( self.socket, _MDNS_ADDR )
             self.socket.close()
 
 # Test a few module features, including service registration, service
