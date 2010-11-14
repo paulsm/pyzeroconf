@@ -1,11 +1,17 @@
 #! /usr/bin/env python
-"""This script simply tests that the Zeroconf multicast setup works on your machine"""
+"""This script simply tests that the multicast setup works on your machine
+
+We create socket that listens on the Zeroconf mDNS port/address and then
+join the mDNS multicast group and send a (malformed) message to the group,
+our socket should receive that packet (because we have enabled multicast
+loopback on the socket).
+"""
 import mcastsocket,socket,os,sys,select,logging
 import Zeroconf
 
 def main(ip):
     """Create a multicast socket, send a message, check it comes back"""
-    sock = mcastsocket.create_socket( (ip,Zeroconf._MDNS_PORT) )
+    sock = mcastsocket.create_socket( (ip,Zeroconf._MDNS_PORT), loop=True )
     mcastsocket.join_group( sock, Zeroconf._MDNS_ADDR )
     try:
         payload = 'hello world'
