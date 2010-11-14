@@ -859,8 +859,9 @@ class Engine(threading.Thread):
                 # No sockets to manage, but we wait for the timeout
                 # or addition of a socket
                 #
+                log.debug( 'No sockets, waiting %s', self.timeout )
                 self.condition.acquire()
-                self.condition.wait(self.timeout)
+                self.condition.wait(self.timeout/25.)
                 self.condition.release()
             else:
                 try:
@@ -912,7 +913,11 @@ class Listener(object):
         self.zeroconf.engine.addReader(self, self.zeroconf.socket)
 
     def handle_read(self):
-        data, (addr, port) = self.zeroconf.socket.recvfrom(_MAX_MSG_ABSOLUTE)
+        try:
+            data, (addr, port) = self.zeroconf.socket.recvfrom(_MAX_MSG_ABSOLUTE)
+        except Exception, err:
+            log.info( 'Error on recvfrom: %s', err )
+            return None
         self.data = data
         msg = DNSIncoming(data)
         if msg.isQuery():
@@ -945,7 +950,10 @@ class Reaper(threading.Thread):
 
     def run(self):
         while 1:
-            self.zeroconf.wait(10 * 1000)
+            try:
+                self.zeroconf.wait(10 * 1000)
+            except ValueError, err:
+                break
             if globals()['_GLOBAL_DONE']:
                 return
             now = currentTimeMillis()
@@ -1475,6 +1483,7 @@ class Zeroconf(object):
             if question.type == _TYPE_PTR:
                 for service in self.services.values():
                     if question.name == service.type:
+                        log.info( 'Service query found %s', service.name )
                         if out is None:
                             out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
                         out.addAnswer(msg, DNSPointer(service.type, _TYPE_PTR, _CLASS_IN, _DNS_TTL, service.name))
@@ -1538,25 +1547,3 @@ class Zeroconf(object):
             mcastsocket.leave_group( self.socket, _MDNS_ADDR )
             self.socket.close()
 
-# Test a few module features, including service registration, service
-# query (for Zoe), and service unregistration.
-
-if __name__ == '__main__':
-    print "Multicast DNS Service Discovery for Python, version", __version__
-    r = Zeroconf()
-    print "1. Testing registration of a service..."
-    desc = {'version':'0.10','a':'test value', 'b':'another value'}
-    info = ServiceInfo("_http._tcp.local.", "My Service Name._http._tcp.local.", socket.inet_aton("127.0.0.1"), 1234, 0, 0, desc)
-    print "   Registering service..."
-    r.registerService(info)
-    print "   Registration done."
-    print "2. Testing query of service information..."
-    print "   Getting ZOE service:", str(r.getServiceInfo("_http._tcp.local.", "ZOE._http._tcp.local."))
-    print "   Query done."
-    print "3. Testing query of own service..."
-    print "   Getting self:", str(r.getServiceInfo("_http._tcp.local.", "My Service Name._http._tcp.local."))
-    print "   Query done."
-    print "4. Testing unregister of service information..."
-    r.unregisterService(info)
-    print "   Unregister done."
-    r.close()

@@ -36,7 +36,10 @@ def create_socket( address, TTL=1, loop=True, reuse=True ):
     ip in address[0], and bound on all interfaces with port address[1].
     Configures TTL and loop-back operation
 
-    address -- IP address family address ('ip',port) on which to listen/broadcast
+    address -- IP address family address ('ip',port) on which to listen/broadcast,
+        the port is always bound to all interfaces, but the use of an ip will cause
+        the IP_MULTICAST_IF option to be set in order to direct messages solely to
+        a given port.
     TTL -- multicast TTL to set on the socket
     loop -- whether to reflect our sent messages to our listening port
     reuse -- whether to set up socket reuse parameters before binding
@@ -88,9 +91,16 @@ def allow_reuse( sock, reuse=True ):
 
     """
     if reuse:
+        log.debug( 'Setting address/port reuse on mcast socket' )
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except AttributeError, err:
+            # ignore common case where SO_REUSEPORT isn't provided on Linux
+            if err.args[0].find('SO_REUSEPORT') > -1:
+                pass
+            else:
+                raise
         except Exception, err:
             # SO_REUSEADDR should be equivalent to SO_REUSEPORT for
             # multicast UDP sockets (p 731, "TCP/IP Illustrated,
