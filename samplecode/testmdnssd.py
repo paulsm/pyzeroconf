@@ -1,5 +1,6 @@
 #! /usr/bin/env python
-import logging,socket,sys,os,Zeroconf
+import logging,socket,sys,os
+from Zeroconf import mdns as Zeroconf
 
 # Test a few module features, including service registration, service
 # query (for Zoe), and service unregistration.

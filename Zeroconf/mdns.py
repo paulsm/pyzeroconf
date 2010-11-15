@@ -20,65 +20,8 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
+This is the threaded mDNS responder/query-er implementation
 """
-
-"""0.12 update - allow selection of binding interface
-         typo fix - Thanks A. M. Kuchlingi
-         removed all use of word 'Rendezvous' - this is an API change"""
-
-"""0.11 update - correction to comments for addListener method
-                 support for new record types seen from OS X
-                  - IPv6 address
-                  - hostinfo
-                 ignore unknown DNS record types
-                 fixes to name decoding
-                 works alongside other processes using port 5353 (e.g. on Mac OS X)
-                 tested against Mac OS X 10.3.2's mDNSResponder
-                 corrections to removal of list entries for service browser"""
-
-"""0.10 update - Jonathon Paisley contributed these corrections:
-                 always multicast replies, even when query is unicast
-                 correct a pointer encoding problem
-                 can now write records in any order
-                 traceback shown on failure
-                 better TXT record parsing
-                 server is now separate from name
-                 can cancel a service browser
-
-                 modified some unit tests to accommodate these changes"""
-
-"""0.09 update - remove all records on service unregistration
-                 fix DOS security problem with readName"""
-
-"""0.08 update - changed licensing to LGPL"""
-
-"""0.07 update - faster shutdown on engine
-                 pointer encoding of outgoing names
-                 ServiceBrowser now works
-                 new unit tests"""
-
-"""0.06 update - small improvements with unit tests
-                 added defined exception types
-                 new style objects
-                 fixed hostname/interface problem
-                 fixed socket timeout problem
-                 fixed addServiceListener() typo bug
-                 using select() for socket reads
-                 tested on Debian unstable with Python 2.2.2"""
-
-"""0.05 update - ensure case insensitivty on domain names
-                 support for unicast DNS queries"""
-
-"""0.04 update - added some unit tests
-                 added __ne__ adjuncts where required
-                 ensure names end in '.local.'
-                 timeout on receiving socket for clean shutdown"""
-
-__author__ = "Paul Scott-Murphy"
-__email__ = "paul at scott dash murphy dot com"
-__version__ = "0.12"
-
-
 import string
 import time
 import struct
@@ -87,127 +30,21 @@ import threading
 import select
 import traceback
 import logging
-import mcastsocket
 log = logging.getLogger(__name__)
-from zeroconf.dns import *
+from Zeroconf import dns,mcastsocket,__version__
 
+ServiceInfo = dns.ServiceInfo
 __all__ = ["Zeroconf", "ServiceInfo", "ServiceBrowser"]
 
 # hook for threads
-
 globals()['_GLOBAL_DONE'] = 0
 
 # Some timing constants
-
 _UNREGISTER_TIME = 125
 _CHECK_TIME = 175
 _REGISTER_TIME = 225
 _LISTENER_TIME = 200
 _BROWSER_TIME = 500
-
-# Some DNS constants
-
-_MDNS_ADDR = '224.0.0.251'
-_MDNS_PORT = 5353;
-_DNS_PORT = 53;
-_DNS_TTL = 60 * 60; # one hour default TTL
-
-_MAX_MSG_TYPICAL = 1460 # unused
-_MAX_MSG_ABSOLUTE = 8972
-
-_FLAGS_QR_MASK = 0x8000 # query response mask
-_FLAGS_QR_QUERY = 0x0000 # query
-_FLAGS_QR_RESPONSE = 0x8000 # response
-
-_FLAGS_AA = 0x0400 # Authorative answer
-_FLAGS_TC = 0x0200 # Truncated
-_FLAGS_RD = 0x0100 # Recursion desired
-_FLAGS_RA = 0x8000 # Recursion available
-
-_FLAGS_Z = 0x0040 # Zero
-_FLAGS_AD = 0x0020 # Authentic data
-_FLAGS_CD = 0x0010 # Checking disabled
-
-_CLASS_IN = 1
-_CLASS_CS = 2
-_CLASS_CH = 3
-_CLASS_HS = 4
-_CLASS_NONE = 254
-_CLASS_ANY = 255
-_CLASS_MASK = 0x7FFF
-_CLASS_UNIQUE = 0x8000
-
-_TYPE_A = 1
-_TYPE_NS = 2
-_TYPE_MD = 3
-_TYPE_MF = 4
-_TYPE_CNAME = 5
-_TYPE_SOA = 6
-_TYPE_MB = 7
-_TYPE_MG = 8
-_TYPE_MR = 9
-_TYPE_NULL = 10
-_TYPE_WKS = 11
-_TYPE_PTR = 12
-_TYPE_HINFO = 13
-_TYPE_MINFO = 14
-_TYPE_MX = 15
-_TYPE_TXT = 16
-_TYPE_AAAA = 28
-_TYPE_SRV = 33
-_TYPE_ANY =  255
-
-# Mapping constants to names
-
-_CLASSES = { _CLASS_IN : "in",
-             _CLASS_CS : "cs",
-             _CLASS_CH : "ch",
-             _CLASS_HS : "hs",
-             _CLASS_NONE : "none",
-             _CLASS_ANY : "any" }
-
-_TYPES = { _TYPE_A : "a",
-           _TYPE_NS : "ns",
-           _TYPE_MD : "md",
-           _TYPE_MF : "mf",
-           _TYPE_CNAME : "cname",
-           _TYPE_SOA : "soa",
-           _TYPE_MB : "mb",
-           _TYPE_MG : "mg",
-           _TYPE_MR : "mr",
-           _TYPE_NULL : "null",
-           _TYPE_WKS : "wks",
-           _TYPE_PTR : "ptr",
-           _TYPE_HINFO : "hinfo",
-           _TYPE_MINFO : "minfo",
-           _TYPE_MX : "mx",
-           _TYPE_TXT : "txt",
-           _TYPE_AAAA : "quada",
-           _TYPE_SRV : "srv",
-           _TYPE_ANY : "any" }
-
-# utility functions
-
-def currentTimeMillis():
-    """Current system time in milliseconds"""
-    return time.time() * 1000
-
-# Exceptions
-
-class NonLocalNameException(Exception):
-    pass
-
-class NonUniqueNameException(Exception):
-    pass
-
-class NamePartTooLongException(Exception):
-    pass
-
-class AbstractMethodException(Exception):
-    pass
-
-class BadTypeInNameException(Exception):
-    pass
 
 class Engine(threading.Thread):
     """An engine wraps read access to sockets, allowing objects that
@@ -291,23 +128,26 @@ class Listener(object):
 
     def handle_read(self):
         try:
-            data, (addr, port) = self.zeroconf.socket.recvfrom(_MAX_MSG_ABSOLUTE)
+            data, (addr, port) = self.zeroconf.socket.recvfrom(dns._MAX_MSG_ABSOLUTE)
         except Exception, err:
-            log.info( 'Error on recvfrom: %s', err )
+            if getattr( err, 'errno', None ) == 9: # 'Bad file descriptor' during shutdown...
+                pass
+            else:
+                log.info( 'Error on recvfrom: %s', err )
             return None
         self.data = data
-        msg = DNSIncoming(data)
+        msg = dns.DNSIncoming(data)
         if msg.isQuery():
             # Always multicast responses
             #
-            if port == _MDNS_PORT:
-                self.zeroconf.handleQuery(msg, _MDNS_ADDR, _MDNS_PORT)
+            if port == dns._MDNS_PORT:
+                self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
             # If it's not a multicast query, reply via unicast
             #
             # and multicast
-            elif port == _DNS_PORT:
+            elif port == dns._DNS_PORT:
                 self.zeroconf.handleQuery(msg, addr, port)
-                self.zeroconf.handleQuery(msg, _MDNS_ADDR, _MDNS_PORT)
+                self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
             else:
                 log.error(
                     "Unknown port: %s", port
@@ -327,13 +167,15 @@ class Reaper(threading.Thread):
 
     def run(self):
         while 1:
+            if globals()['_GLOBAL_DONE']:
+                return
             try:
                 self.zeroconf.wait(10 * 1000)
             except ValueError, err:
                 break
             if globals()['_GLOBAL_DONE']:
                 return
-            now = currentTimeMillis()
+            now = dns.currentTimeMillis()
             for record in self.zeroconf.cache.entries():
                 if record.isExpired(now):
                     self.zeroconf.updateRecord(now, record)
@@ -355,20 +197,20 @@ class ServiceBrowser(threading.Thread):
         self.listener = listener
         self.daemon = True
         self.services = {}
-        self.nextTime = currentTimeMillis()
+        self.nextTime = dns.currentTimeMillis()
         self.delay = _BROWSER_TIME
         self.list = []
 
         self.done = 0
 
-        self.zeroconf.addListener(self, DNSQuestion(self.type, _TYPE_PTR, _CLASS_IN))
+        self.zeroconf.addListener(self, dns.DNSQuestion(self.type, dns._TYPE_PTR, dns._CLASS_IN))
         self.start()
 
     def updateRecord(self, zeroconf, now, record):
         """Callback invoked by Zeroconf when new information arrives.
 
         Updates information required by browser in the Zeroconf cache."""
-        if record.type == _TYPE_PTR and record.name == self.type:
+        if record.type == dns._TYPE_PTR and record.name == self.type:
             expired = record.isExpired(now)
             try:
                 oldrecord = self.services[record.alias.lower()]
@@ -396,16 +238,16 @@ class ServiceBrowser(threading.Thread):
     def run(self):
         while 1:
             event = None
-            now = currentTimeMillis()
+            now = dns.currentTimeMillis()
             if len(self.list) == 0 and self.nextTime > now:
                 self.zeroconf.wait(self.nextTime - now)
             if globals()['_GLOBAL_DONE'] or self.done:
                 return
-            now = currentTimeMillis()
+            now = dns.currentTimeMillis()
 
             if self.nextTime <= now:
-                out = DNSOutgoing(_FLAGS_QR_QUERY)
-                out.addQuestion(DNSQuestion(self.type, _TYPE_PTR, _CLASS_IN))
+                out = dns.DNSOutgoing(dns._FLAGS_QR_QUERY)
+                out.addQuestion(dns.DNSQuestion(self.type, dns._TYPE_PTR, dns._CLASS_IN))
                 for record in self.services.values():
                     if not record.isExpired(now):
                         out.addAnswerAtTime(record, now)
@@ -433,14 +275,14 @@ class Zeroconf(object):
             bindaddress = self.intf
         else:
             self.intf = bindaddress
-        self.socket = mcastsocket.create_socket( (bindaddress, _MDNS_PORT) )
-        mcastsocket.join_group( self.socket, _MDNS_ADDR )
+        self.socket = mcastsocket.create_socket( (bindaddress, dns._MDNS_PORT) )
+        mcastsocket.join_group( self.socket, dns._MDNS_ADDR )
 
         self.listeners = []
         self.browsers = []
         self.services = {}
 
-        self.cache = DNSCache()
+        self.cache = dns.DNSCache()
 
         self.condition = threading.Condition()
 
@@ -471,7 +313,7 @@ class Zeroconf(object):
         """Returns network's service information for a particular
         name and type, or None if no service matches by the timeout,
         which defaults to 3 seconds."""
-        info = ServiceInfo(type, name)
+        info = dns.ServiceInfo(type, name)
         if info.request(self, timeout):
             return info
         return None
@@ -490,27 +332,27 @@ class Zeroconf(object):
                 browser.cancel()
                 del(browser)
 
-    def registerService(self, info, ttl=_DNS_TTL):
+    def registerService(self, info, ttl=dns._DNS_TTL):
         """Registers service information to the network with a default TTL
         of 60 seconds.  Zeroconf will then respond to requests for
         information for that service.  The name of the service may be
         changed if needed to make it unique on the network."""
         self.checkService(info)
         self.services[info.name.lower()] = info
-        now = currentTimeMillis()
+        now = dns.currentTimeMillis()
         nextTime = now
         i = 0
         while i < 3:
             if now < nextTime:
                 self.wait(nextTime - now)
-                now = currentTimeMillis()
+                now = dns.currentTimeMillis()
                 continue
-            out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
-            out.addAnswerAtTime(DNSPointer(info.type, _TYPE_PTR, _CLASS_IN, ttl, info.name), 0)
-            out.addAnswerAtTime(DNSService(info.name, _TYPE_SRV, _CLASS_IN, ttl, info.priority, info.weight, info.port, info.server), 0)
-            out.addAnswerAtTime(DNSText(info.name, _TYPE_TXT, _CLASS_IN, ttl, info.text), 0)
+            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
+            out.addAnswerAtTime(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, ttl, info.name), 0)
+            out.addAnswerAtTime(dns.DNSService(info.name, dns._TYPE_SRV, dns._CLASS_IN, ttl, info.priority, info.weight, info.port, info.server), 0)
+            out.addAnswerAtTime(dns.DNSText(info.name, dns._TYPE_TXT, dns._CLASS_IN, ttl, info.text), 0)
             if info.address:
-                out.addAnswerAtTime(DNSAddress(info.server, _TYPE_A, _CLASS_IN, ttl, info.address), 0)
+                out.addAnswerAtTime(dns.DNSAddress(info.server, dns._TYPE_A, dns._CLASS_IN, ttl, info.address), 0)
             self.send(out)
             i += 1
             nextTime += _REGISTER_TIME
@@ -521,20 +363,20 @@ class Zeroconf(object):
             del(self.services[info.name.lower()])
         except:
             pass
-        now = currentTimeMillis()
+        now = dns.currentTimeMillis()
         nextTime = now
         i = 0
         while i < 3:
             if now < nextTime:
                 self.wait(nextTime - now)
-                now = currentTimeMillis()
+                now = dns.currentTimeMillis()
                 continue
-            out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
-            out.addAnswerAtTime(DNSPointer(info.type, _TYPE_PTR, _CLASS_IN, 0, info.name), 0)
-            out.addAnswerAtTime(DNSService(info.name, _TYPE_SRV, _CLASS_IN, 0, info.priority, info.weight, info.port, info.name), 0)
-            out.addAnswerAtTime(DNSText(info.name, _TYPE_TXT, _CLASS_IN, 0, info.text), 0)
+            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
+            out.addAnswerAtTime(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, 0, info.name), 0)
+            out.addAnswerAtTime(dns.DNSService(info.name, dns._TYPE_SRV, dns._CLASS_IN, 0, info.priority, info.weight, info.port, info.name), 0)
+            out.addAnswerAtTime(dns.DNSText(info.name, dns._TYPE_TXT, dns._CLASS_IN, 0, info.text), 0)
             if info.address:
-                out.addAnswerAtTime(DNSAddress(info.server, _TYPE_A, _CLASS_IN, 0, info.address), 0)
+                out.addAnswerAtTime(dns.DNSAddress(info.server, dns._TYPE_A, dns._CLASS_IN, 0, info.address), 0)
             self.send(out)
             i += 1
             nextTime += _UNREGISTER_TIME
@@ -542,21 +384,21 @@ class Zeroconf(object):
     def unregisterAllServices(self):
         """Unregister all registered services."""
         if len(self.services) > 0:
-            now = currentTimeMillis()
+            now = dns.currentTimeMillis()
             nextTime = now
             i = 0
             while i < 3:
                 if now < nextTime:
                     self.wait(nextTime - now)
-                    now = currentTimeMillis()
+                    now = dns.currentTimeMillis()
                     continue
-                out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
+                out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
                 for info in self.services.values():
-                    out.addAnswerAtTime(DNSPointer(info.type, _TYPE_PTR, _CLASS_IN, 0, info.name), 0)
-                    out.addAnswerAtTime(DNSService(info.name, _TYPE_SRV, _CLASS_IN, 0, info.priority, info.weight, info.port, info.server), 0)
-                    out.addAnswerAtTime(DNSText(info.name, _TYPE_TXT, _CLASS_IN, 0, info.text), 0)
+                    out.addAnswerAtTime(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, 0, info.name), 0)
+                    out.addAnswerAtTime(dns.DNSService(info.name, dns._TYPE_SRV, dns._CLASS_IN, 0, info.priority, info.weight, info.port, info.server), 0)
+                    out.addAnswerAtTime(dns.DNSText(info.name, dns._TYPE_TXT, dns._CLASS_IN, 0, info.text), 0)
                     if info.address:
-                        out.addAnswerAtTime(DNSAddress(info.server, _TYPE_A, _CLASS_IN, 0, info.address), 0)
+                        out.addAnswerAtTime(dns.DNSAddress(info.server, dns._TYPE_A, dns._CLASS_IN, 0, info.address), 0)
                 self.send(out)
                 i += 1
                 nextTime += _UNREGISTER_TIME
@@ -564,12 +406,12 @@ class Zeroconf(object):
     def checkService(self, info):
         """Checks the network for a unique service name, modifying the
         ServiceInfo passed in if it is not unique."""
-        now = currentTimeMillis()
+        now = dns.currentTimeMillis()
         nextTime = now
         i = 0
         while i < 3:
             for record in self.cache.entriesWithName(info.type):
-                if record.type == _TYPE_PTR and not record.isExpired(now) and record.alias == info.name:
+                if record.type == dns._TYPE_PTR and not record.isExpired(now) and record.alias == info.name:
                     if (info.name.find('.') < 0):
                         info.name = info.name + ".[" + info.address + ":" + info.port + "]." + info.type
                         self.checkService(info)
@@ -577,12 +419,12 @@ class Zeroconf(object):
                     raise NonUniqueNameException
             if now < nextTime:
                 self.wait(nextTime - now)
-                now = currentTimeMillis()
+                now = dns.currentTimeMillis()
                 continue
-            out = DNSOutgoing(_FLAGS_QR_QUERY | _FLAGS_AA)
+            out = dns.DNSOutgoing(dns._FLAGS_QR_QUERY | dns._FLAGS_AA)
             self.debug = out
-            out.addQuestion(DNSQuestion(info.type, _TYPE_PTR, _CLASS_IN))
-            out.addAuthorativeAnswer(DNSPointer(info.type, _TYPE_PTR, _CLASS_IN, _DNS_TTL, info.name))
+            out.addQuestion(dns.DNSQuestion(info.type, dns._TYPE_PTR, dns._CLASS_IN))
+            out.addAuthorativeAnswer(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, info.name))
             self.send(out)
             i += 1
             nextTime += _CHECK_TIME
@@ -591,7 +433,7 @@ class Zeroconf(object):
         """Adds a listener for a given question.  The listener will have
         its updateRecord method called when information is available to
         answer the question."""
-        now = currentTimeMillis()
+        now = dns.currentTimeMillis()
         self.listeners.append(listener)
         if question is not None:
             for record in self.cache.entriesWithName(question.name):
@@ -617,7 +459,7 @@ class Zeroconf(object):
     def handleResponse(self, msg):
         """Deal with incoming response packets.  All answers
         are held in the cache, and listeners are notified."""
-        now = currentTimeMillis()
+        now = dns.currentTimeMillis()
         for record in msg.answers:
             expired = record.isExpired(now)
             if record in self.cache.entries():
@@ -640,47 +482,47 @@ class Zeroconf(object):
 
         # Support unicast client responses
         #
-        if port != _MDNS_PORT:
-            out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA, 0)
+        if port != dns._MDNS_PORT:
+            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA, 0)
             for question in msg.questions:
                 out.addQuestion(question)
         log.debug( 'Questions...')
         for question in msg.questions:
             log.debug( 'Question: %s', question )
-            if question.type == _TYPE_PTR:
+            if question.type == dns._TYPE_PTR:
                 for service in self.services.values():
                     if question.name == service.type:
                         log.info( 'Service query found %s', service.name )
                         if out is None:
-                            out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
-                        out.addAnswer(msg, DNSPointer(service.type, _TYPE_PTR, _CLASS_IN, _DNS_TTL, service.name))
+                            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
+                        out.addAnswer(msg, dns.DNSPointer(service.type, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, service.name))
                         # devices such as AAstra phones will not re-query to
                         # resolve the pointer, they expect the final IP to show up
                         # in the response
-                        out.addAdditionalAnswer(DNSText(service.name, _TYPE_TXT, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.text))
-                        out.addAdditionalAnswer(DNSService(service.name, _TYPE_SRV, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.priority, service.weight, service.port, service.server))
-                        out.addAdditionalAnswer(DNSAddress(service.server, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
+                        out.addAdditionalAnswer(dns.DNSText(service.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
+                        out.addAdditionalAnswer(dns.DNSService(service.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
+                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
             else:
                 try:
                     if out is None:
-                        out = DNSOutgoing(_FLAGS_QR_RESPONSE | _FLAGS_AA)
+                        out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
 
                     # Answer A record queries for any service addresses we know
-                    if question.type == _TYPE_A or question.type == _TYPE_ANY:
+                    if question.type == dns._TYPE_A or question.type == dns._TYPE_ANY:
                         for service in self.services.values():
                             if service.server == question.name.lower():
-                                out.addAnswer(msg, DNSAddress(question.name, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
+                                out.addAnswer(msg, DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
 
 
                     service = self.services.get(question.name.lower(), None)
                     if not service: continue
 
-                    if question.type == _TYPE_SRV or question.type == _TYPE_ANY:
-                        out.addAnswer(msg, DNSService(question.name, _TYPE_SRV, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.priority, service.weight, service.port, service.server))
-                    if question.type == _TYPE_TXT or question.type == _TYPE_ANY:
-                        out.addAnswer(msg, DNSText(question.name, _TYPE_TXT, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.text))
-                    if question.type == _TYPE_SRV:
-                        out.addAdditionalAnswer(DNSAddress(service.server, _TYPE_A, _CLASS_IN | _CLASS_UNIQUE, _DNS_TTL, service.address))
+                    if question.type == dns._TYPE_SRV or question.type == dns._TYPE_ANY:
+                        out.addAnswer(msg, dns.DNSService(question.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
+                    if question.type == dns._TYPE_TXT or question.type == dns._TYPE_ANY:
+                        out.addAnswer(msg, dns.DNSText(question.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
+                    if question.type == dns._TYPE_SRV:
+                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
                 except Exception, err:
                     log.error(
                         'Error handling query: %s',traceback.format_exc()
@@ -692,10 +534,10 @@ class Zeroconf(object):
         else:
             log.debug( 'No answer for %s', [q for q in msg.questions] )
 
-    def send(self, out, addr = _MDNS_ADDR, port = _MDNS_PORT):
+    def send(self, out, addr = dns._MDNS_ADDR, port = dns._MDNS_PORT):
         """Sends an outgoing packet."""
         # This is a quick test to see if we can parse the packets we generate
-        #temp = DNSIncoming(out.packet())
+        #temp = dns.DNSIncoming(out.packet())
         try:
             packet = out.packet()
             bytes_sent = self.socket.sendto(packet, 0, (addr, port))
@@ -711,6 +553,5 @@ class Zeroconf(object):
             self.notifyAll()
             self.engine.notify()
             self.unregisterAllServices()
-            mcastsocket.leave_group( self.socket, _MDNS_ADDR )
+            mcastsocket.leave_group( self.socket, dns._MDNS_ADDR )
             self.socket.close()
-
