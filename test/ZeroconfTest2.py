@@ -24,7 +24,7 @@ __author__ = "Paul Scott-Murphy"
 __email__ = "paul at scott dash murphy dot com"
 __version__ = "0.12"
 
-from Zeroconf import *
+from zeroconf.mdns import *
 import socket
 
 desc = {'path':'/~paulsm/'}

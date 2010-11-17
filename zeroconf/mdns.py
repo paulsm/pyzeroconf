@@ -31,7 +31,7 @@ import select
 import traceback
 import logging
 log = logging.getLogger(__name__)
-from Zeroconf import dns,mcastsocket,__version__
+from zeroconf import dns,mcastsocket,__version__
 
 ServiceInfo = dns.ServiceInfo
 __all__ = ["Zeroconf", "ServiceInfo", "ServiceBrowser"]

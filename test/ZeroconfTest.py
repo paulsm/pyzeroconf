@@ -24,8 +24,8 @@ __author__ = "Paul Scott-Murphy"
 __email__ = "paul at scott dash murphy dot com"
 __version__ = "0.12"
 
-from Zeroconf import dns as r
-import Zeroconf
+from zeroconf import dns as r
+from zeroconf import mdns
 import unittest
 
 
@@ -159,7 +159,7 @@ class Names(unittest.TestCase):
 class Framework(unittest.TestCase):
 
 	def testLaunchAndClose(self):
-		rv = Zeroconf.Zeroconf()
+		rv = mdns.Zeroconf()
 		rv.close()
 
 if __name__ == '__main__':

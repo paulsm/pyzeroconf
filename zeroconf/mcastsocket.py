@@ -47,20 +47,23 @@ def create_socket( address, TTL=1, loop=True, reuse=True ):
     returns socket.socket instance configured as specified
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_TTL, TTL)
-    sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_LOOP, int(bool(loop)))
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, TTL)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, int(bool(loop)))
     allow_reuse( sock, reuse )
+    limit_to_interface( sock, address[0] )
     try:
         # Note: multicast is *not* working if we don't bind on all interfaces, most likely
         # because the 224.* isn't getting mapped (routed) to the address of the interface...
         # to debug that case, see if {{{ip route add 224.0.0.0/4 dev br0}}} (or whatever your
         # interface is) makes the route suddenly start working...
+#        if address[0]:
+#            sock.bind( address )
+#        else:
         sock.bind(('',address[1]))
     except Exception, err:
         # Some versions of linux raise an exception even though
         # the SO_REUSE* options have been set, so ignore it
         log.error('Failure binding: %s', err)
-    limit_to_interface( sock, address[0] )
     return sock
 
 def limit_to_interface( sock, interface_ip ):
@@ -73,11 +76,10 @@ def limit_to_interface( sock, interface_ip ):
     """
     if interface_ip:
         # listen/send on a single interface...
-        log.debug( 'Setting multicast to use interface of %s', interface_ip )
+        log.debug( 'Limiting multicast to use interface of %s', interface_ip )
         sock.setsockopt(
-            socket.SOL_IP, socket.IP_MULTICAST_IF,
-            socket.inet_aton( interface_ip) +
-                socket.inet_aton('0.0.0.0')
+            socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+            socket.inet_aton( interface_ip) # + socket.inet_aton( '0.0.0.0' )
         )
         return True
     return False
@@ -118,13 +120,13 @@ def join_group( sock, group ):
     """Add our socket to this multicast group"""
     log.info( 'Joining multicast group: %s', group )
     sock.setsockopt(
-        socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+        socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
         socket.inet_aton(group) + socket.inet_aton('0.0.0.0')
     )
 def leave_group( sock, group ):
     """Remove our socket from this multicast group"""
     log.info( 'Leaving multicast group: %s', group )
     sock.setsockopt(
-        socket.SOL_IP, socket.IP_DROP_MEMBERSHIP,
+        socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP,
         socket.inet_aton(group) + socket.inet_aton('0.0.0.0')
     )

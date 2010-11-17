@@ -1,4 +1,4 @@
-from Zeroconf.mdns import *
+from zeroconf.mdns import *
 import socket
 
 class MyListener(object):

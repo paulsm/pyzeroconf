@@ -7,7 +7,7 @@ our socket should receive that packet (because we have enabled multicast
 loopback on the socket).
 """
 import socket,os,sys,select,logging
-from Zeroconf import dns,mcastsocket,mdns
+from zeroconf import dns,mcastsocket,mdns
 
 def main(ip):
     """Create a multicast socket, send a message, check it comes back"""
@@ -21,7 +21,9 @@ def main(ip):
             rs,wr,xs = select.select( [sock],[],[], 1.0 )
             data,(addr,port) = sock.recvfrom( 200 )
             if data == payload:
-                print 'Success: looped message received'
+                print 'Success: looped message received from address %s port %s'%(
+                    addr,port,
+                )
                 return 0
         print 'Failure: Looped message not received'
         return 1

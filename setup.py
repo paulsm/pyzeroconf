@@ -4,7 +4,7 @@ from distutils.core import setup
 import os
 info = {}
 keys = [('__author__','author'),('__email__','author_email'),('__version__','version')]
-for line in open( os.path.join('Zeroconf','__init__.py') ):
+for line in open( os.path.join('zeroconf','__init__.py') ):
     for key,inf in keys:
         if line.startswith( key ):
             info[inf] = line.strip().split('=')[1].strip().strip('"').strip("'")
