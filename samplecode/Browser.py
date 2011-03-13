@@ -13,6 +13,9 @@ class MyListener(object):
         print "Service", name, "added"
         print "Type is", type
         info = self.r.getServiceInfo(type, name)
+        if not info:
+            print "  (timeout)"
+            return
         print "Address is", str(socket.inet_ntoa(info.getAddress()))
         print "Port is", info.getPort()
         print "Weight is", info.getWeight()
@@ -22,6 +25,8 @@ class MyListener(object):
         print "Properties are", info.getProperties()
 
 if __name__ == '__main__':
+    import logging
+    logging.basicConfig(level=logging.WARNING)
     print "Multicast DNS Service Discovery for Python Browser test"
     r = Zeroconf()
     try:
