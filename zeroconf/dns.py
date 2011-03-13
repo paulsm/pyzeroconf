@@ -93,6 +93,7 @@ _TYPE_MX = 15
 _TYPE_TXT = 16
 _TYPE_AAAA = 28
 _TYPE_SRV = 33
+_TYPE_NSEC = 47
 _TYPE_ANY =  255
 
 # Mapping constants to names
@@ -122,6 +123,7 @@ _TYPES = { _TYPE_A : "a",
            _TYPE_TXT : "txt",
            _TYPE_AAAA : "quada",
            _TYPE_SRV : "srv",
+           _TYPE_NSEC : "nsec",
            _TYPE_ANY : "any" }
 
 # utility functions
@@ -492,6 +494,10 @@ class DNSIncoming(object):
                     rec = DNSHinfo(domain, info[0], info[1], info[2], self.readCharacterString(), self.readCharacterString())
                 elif info[0] == _TYPE_AAAA:
                     rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(16))
+                elif info[0] == _TYPE_MF:
+                    log.debug("Obsoleted Mail Forwarding (MF) type")
+                elif info[0] == _TYPE_NSEC:
+                    log.debug("Ignoring DNSSEC record type")
                 else:
                     # Try to ignore types we don't know about
                     # this may mean the rest of the name is
