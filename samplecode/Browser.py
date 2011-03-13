@@ -6,13 +6,13 @@ class MyListener(object):
         self.r = Zeroconf()
         pass
 
-    def removeService(self, zeroconf, type, name):
+    def removeService(self, zeroconf, type_, name):
         print "Service", name, "removed"
 
-    def addService(self, zeroconf, type, name):
+    def addService(self, zeroconf, type_, name):
         print "Service", name, "added"
-        print "Type is", type
-        info = self.r.getServiceInfo(type, name)
+        print "Type is", type_
+        info = self.r.getServiceInfo(type_, name)
         if not info:
             print "  (timeout)"
             return
@@ -31,9 +31,9 @@ if __name__ == '__main__':
     r = Zeroconf()
     try:
         print "1. Testing browsing for a service..."
-        type = "_http._tcp.local."
+        type_ = "_http._tcp.local."
         listener = MyListener()
-        browser = ServiceBrowser(r, type, listener)
+        browser = ServiceBrowser(r, type_, listener)
         raw_input( 'Press <enter> to stop listening > ')
     finally:
         r.close()
