@@ -454,9 +454,9 @@ class DNSIncoming(object):
         self.offset += 1
         return self.readString(length)
 
-    def readString(self, len):
+    def readString(self, len_):
         """Reads a string of a given length from the packet"""
-        format = '!' + str(len) + 's'
+        format = '!' + str(len_) + 's'
         length =  struct.calcsize(format)
         info = struct.unpack(format, self.data[self.offset:self.offset+length])
         self.offset += length
@@ -522,13 +522,13 @@ class DNSIncoming(object):
         """Returns true if this is a response"""
         return (self.flags & _FLAGS_QR_MASK) == _FLAGS_QR_RESPONSE
 
-    def readUTF(self, offset, len):
+    def readUTF(self, offset, len_):
         """Reads a UTF-8 string of a given length from the packet
 
         TODO: there are cases were non-utf-8 data comes through,
         we need to decide how to properly handle these.
         """
-        return self.data[offset:offset+len].decode('utf-8','ignore')
+        return self.data[offset:offset+len_].decode('utf-8','ignore')
 
     def readName(self):
         """Reads a domain name from the packet"""
@@ -538,18 +538,18 @@ class DNSIncoming(object):
         first = off
 
         while 1:
-            len = ord(self.data[off])
+            len_ = ord(self.data[off])
             off += 1
-            if len == 0:
+            if len_ == 0:
                 break
-            t = len & 0xC0
+            t = len_ & 0xC0
             if t == 0x00:
-                result = ''.join((result, self.readUTF(off, len) + '.'))
-                off += len
+                result = ''.join((result, self.readUTF(off, len_) + '.'))
+                off += len_
             elif t == 0xC0:
                 if next < 0:
                     next = off + 1
-                off = ((len & 0x3F) << 8) | ord(self.data[off])
+                off = ((len_ & 0x3F) << 8) | ord(self.data[off])
                 if off >= first:
                     raise "Bad domain name (circular) at " + str(off)
                 first = off
