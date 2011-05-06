@@ -1,6 +1,9 @@
 #! /usr/bin/env python
 """Install Zeroconf.py using distutils"""
-from distutils.core import setup
+try:
+    from setuptools import setup 
+except ImportError, err:
+    from distutils.core import setup
 import os
 info = {}
 keys = [('__author__','author'),('__email__','author_email'),('__version__','version')]
