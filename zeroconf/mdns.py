@@ -189,17 +189,17 @@ class Reaper(threading.Thread):
 
 
 class ServiceBrowser(threading.Thread):
-    """Used to browse for a service of a specific type.
+    """Used to browse for a service of a specific type_.
 
     The listener object will have its addService() and
     removeService() methods called when this browser
     discovers changes in the services availability."""
 
-    def __init__(self, zeroconf, type, listener):
-        """Creates a browser for a specific type"""
+    def __init__(self, zeroconf, type_, listener):
+        """Creates a browser for a specific type_"""
         threading.Thread.__init__(self)
         self.zeroconf = zeroconf
-        self.type = type
+        self.type = type_
         self.listener = listener
         self.daemon = True
         self.services = {}
@@ -370,21 +370,21 @@ class Zeroconf(object):
             return info.address
         return None
 
-    def getServiceInfo(self, type, name, timeout=3000):
+    def getServiceInfo(self, type_, name, timeout=3000):
         """Returns network's service information for a particular
-        name and type, or None if no service matches by the timeout,
+        name and type_, or None if no service matches by the timeout,
         which defaults to 3 seconds."""
-        info = dns.ServiceInfo(type, name)
+        info = dns.ServiceInfo(type_, name)
         if info.request(self, timeout):
             return info
         return None
 
-    def addServiceListener(self, type, listener):
-        """Adds a listener for a particular service type.  This object
+    def addServiceListener(self, type_, listener):
+        """Adds a listener for a particular service type_.  This object
         will then have its updateRecord method called when information
-        arrives for that type."""
+        arrives for that type_."""
         self.removeServiceListener(listener)
-        self.browsers.append(ServiceBrowser(self, type, listener))
+        self.browsers.append(ServiceBrowser(self, type_, listener))
 
     def removeServiceListener(self, listener):
         """Removes a listener from the set that is currently listening."""
