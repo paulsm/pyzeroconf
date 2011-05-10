@@ -233,6 +233,7 @@ class DNSRecord(DNSEntry):
         information held in this record."""
         for record in msg.answers:
             if self.suppressedByAnswer(record):
+                log.debug( 'Suppressing %s due to query record %s', self, record )
                 return 1
         return 0
 
@@ -771,6 +772,10 @@ class DNSCache(object):
             return reduce(add, self.cache.values())
         except:
             return []
+    
+    def clear( self ):
+        """Clear our cache of entries"""
+        self.cache.clear()
 
 class ServiceInfo(object):
     """Service information"""
