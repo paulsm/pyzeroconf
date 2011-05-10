@@ -308,6 +308,57 @@ class Zeroconf(object):
         self.condition.acquire()
         self.condition.notifyAll()
         self.condition.release()
+    
+    def probeName( self, name, timeout=250 ):
+        """Probe host-names until we find an unoccupied one
+        
+        name -- name from which to construct the host-name, note that this 
+            must be a .local. suffix'd name, names will be constructed as 
+            prefix%s.suffix. where %s is a numeric suffix, with '' as the 
+            first attempted name
+        
+        http://files.multicastdns.org/draft-cheshire-dnsext-multicastdns.txt  Section 8
+        
+        Note: this is not yet a full implementation of the protocol,
+        as it is missing support for pre-registering services, handling 
+        conflicts and race conditions, etc.
+        
+        Note: you *must* advertise your services *before* you issue this 
+        query, as race conditions will occur if two machines booted at
+        the same time try to resolve the same name.
+        """
+        def names( name ):
+            yield name
+            prefix,suffix = name.split('.',1)
+            count = 1
+            while True:
+                yield '%s%s.%s'%( prefix,count,suffix )
+                count += 1
+                if count > 2**16:
+                    raise RuntimeError( """Unable to find an unused name %s"""%( name, ))
+        for failures,name in enumerate(names(name)):
+            for i in range(3):
+                address = self.getServerAddress( 
+                    name, timeout, 
+                    ignore=[self.intf] # our own address is *not* to be considered
+                )
+                if address:
+                    break
+            if failures > 5:
+                # mDNS requires huge slowdown after 15 failures
+                # to prevent flooding network...
+                log.warn( 
+                    "Throttling host-name configuration to prevent network flood"
+                )
+                timeout = 5.0
+            if not address:
+                return name
+    def getServerAddress(self, name, timeout=3000, ignore=None):
+        """Returns given server-name record or None on timeout"""
+        info = dns.ServerNameWatcher( name, ignore=ignore )
+        if info.request( self, timeout ):
+            return info.address
+        return None
 
     def getServiceInfo(self, type, name, timeout=3000):
         """Returns network's service information for a particular
@@ -490,8 +541,10 @@ class Zeroconf(object):
         for question in msg.questions:
             log.debug( 'Question: %s', question )
             if question.type == dns._TYPE_PTR:
+                log.debug( 'Question name: %r', question.name )
                 for service in self.services.values():
-                    if question.name == service.type:
+                    log.debug( 'Check service: %s', service.type )
+                    if question.name in (service.type,service.name):
                         log.info( 'Service query found %s', service.name )
                         if out is None:
                             out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
@@ -511,11 +564,12 @@ class Zeroconf(object):
                     if question.type == dns._TYPE_A or question.type == dns._TYPE_ANY:
                         for service in self.services.values():
                             if service.server == question.name.lower():
-                                out.addAnswer(msg, DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
-
+                                out.addAnswer(msg, dns.DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
 
                     service = self.services.get(question.name.lower(), None)
-                    if not service: continue
+                    if not service: 
+                        continue
+                    log.info( 'Question was matched to service' )
 
                     if question.type == dns._TYPE_SRV or question.type == dns._TYPE_ANY:
                         out.addAnswer(msg, dns.DNSService(question.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
@@ -531,6 +585,9 @@ class Zeroconf(object):
         if out is not None and out.answers:
             out.id = msg.id
             self.send(out, addr, port)
+            log.info( 'Sent response' )
+#        elif out is not None:
+#            log.debug( "Out was created, but got no answers" )
         else:
             log.debug( 'No answer for %s', [q for q in msg.questions] )
 

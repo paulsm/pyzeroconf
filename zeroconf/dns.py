@@ -906,18 +906,24 @@ class ServiceInfo(object):
         """Updates service information from a DNS record"""
         if record is not None and not record.isExpired(now):
             if record.type == _TYPE_A:
-                if record.name == self.name:
+                if record.name in (self.name,self.server):
+                    log.debug( 'Got A record for %s', record.name )
                     self.address = record.address
+                else:
+                    log.debug( 'Got A record for %s, wanted %s', record.name, self.name )
             elif record.type == _TYPE_SRV:
                 if record.name == self.name:
+                    log.debug( 'Got SRV record for %s', record.name )
                     self.server = record.server
                     self.port = record.port
                     self.weight = record.weight
                     self.priority = record.priority
-                    self.address = None
+                    #self.address = None
                     self.updateRecord(zeroconf, now, zeroconf.cache.getByDetails(self.server, _TYPE_A, _CLASS_IN))
+                
             elif record.type == _TYPE_TXT:
                 if record.name == self.name:
+                    log.debug( 'Got TXT record for %s', record.name )
                     self.setText(record.text)
 
     def request(self, zeroconf, timeout):
@@ -978,3 +984,44 @@ class ServiceInfo(object):
         result += "]"
         return result
 
+
+class ServerNameWatcher( object ):
+    def __init__(self, name, ignore=None ):
+        self.name = name
+        self.address = None
+        self.ignore = ignore
+    def request( self, zeroconf, timeout=3000 ):
+        now = currentTimeMillis()
+        delay = _LISTENER_TIME
+        next = now + delay
+        last = now + timeout
+        result = 0
+        try:
+            zeroconf.addListener(self, DNSQuestion( self.name, _TYPE_ANY, _CLASS_IN ))
+            while self.address is None:
+                if last <= now:
+                    return 0
+                if next <= now:
+                    out = DNSOutgoing(_FLAGS_QR_QUERY)
+                    out.addQuestion(DNSQuestion(self.name, _TYPE_ANY, _CLASS_IN))
+                    zeroconf.send(out)
+                    next = now + delay
+                    delay = delay * 2
+
+                zeroconf.wait(min(next, last) - now)
+                now = currentTimeMillis()
+            result = 1
+        finally:
+            zeroconf.removeListener(self)
+        return result
+    def updateRecord(self, zeroconf, now, record):
+        """Updates service information from a DNS record"""
+        if record is not None and not record.isExpired(now):
+            if record.name == self.name:
+                if (self.ignore and record.address in self.ignore) or (not self.ignore):
+                    self.address = record.address
+                else:
+                    log.debug(
+                        """Ignoring own-response"""
+                    )
+    
