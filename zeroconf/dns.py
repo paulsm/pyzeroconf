@@ -500,7 +500,7 @@ class DNSIncoming(object):
                     # encountered need to be parsed properly.
                     #
                     log.warn(
-                        "Unknown DNS query type: %s", info[0]
+                        "Unknown DNS query type: %s", info
                     )
 
                 if rec is not None:
@@ -1018,8 +1018,15 @@ class ServerNameWatcher( object ):
         """Updates service information from a DNS record"""
         if record is not None and not record.isExpired(now):
             if record.name == self.name:
-                if (self.ignore and record.address in self.ignore) or (not self.ignore):
-                    self.address = record.address
+                if (
+                    self.ignore and getattr(record,'address',None) in self.ignore
+                ) or (not self.ignore):
+                    # something is using this name, whether for a server-name or not...
+                    if self.address in (True,None):
+                        if getattr( record, 'address', None ):
+                            self.address = record.address
+                        else:
+                            self.address = True
                 else:
                     log.debug(
                         """Ignoring own-response"""

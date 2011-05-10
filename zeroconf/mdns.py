@@ -26,6 +26,7 @@ import string
 import time
 import struct
 import socket
+import errno
 import threading
 import select
 import traceback
@@ -80,12 +81,17 @@ class Engine(threading.Thread):
             else:
                 try:
                     rr, wr, er = select.select(rs, [], [], self.timeout)
+                except (socket.error,select.error), err:
+                    if err[0] in (errno.EWOULDBLOCK,errno.EINTR,errno.EAGAIN):
+                        pass 
+                    else:
+                        log.warn( 'Failure on select, ignoring: %s', err )
                 except Exception, err:
                     log.warn( 'Select failure, ignored: %s', err )
                 else:
-                    for socket in rr:
+                    for sock in rr:
                         try:
-                            self.readers[socket].handle_read()
+                            self.readers[sock].handle_read()
                         except Exception, err:
                             # Ignore errors that occur on shutdown
                             log.error( 'Error handling read: %s', err )
@@ -317,6 +323,10 @@ class Zeroconf(object):
             prefix%s.suffix. where %s is a numeric suffix, with '' as the 
             first attempted name
         
+        TODO: maybe make this part of checkService instead?  Same basic 
+        operation, it's just looking for unique server name instead of unique 
+        service name.
+        
         http://files.multicastdns.org/draft-cheshire-dnsext-multicastdns.txt  Section 8
         
         Note: this is not yet a full implementation of the protocol,
@@ -467,7 +477,7 @@ class Zeroconf(object):
                         info.name = info.name + ".[" + info.address + ":" + info.port + "]." + info.type
                         self.checkService(info)
                         return
-                    raise NonUniqueNameException
+                    raise dns.NonUniqueNameException
             if now < nextTime:
                 self.wait(nextTime - now)
                 now = dns.currentTimeMillis()
@@ -540,56 +550,55 @@ class Zeroconf(object):
         log.debug( 'Questions...')
         for question in msg.questions:
             log.debug( 'Question: %s', question )
-            if question.type == dns._TYPE_PTR:
-                log.debug( 'Question name: %r', question.name )
-                for service in self.services.values():
-                    log.debug( 'Check service: %s', service.type )
-                    if question.name in (service.type,service.name):
-                        log.info( 'Service query found %s', service.name )
-                        if out is None:
-                            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
-                        out.addAnswer(msg, dns.DNSPointer(service.type, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, service.name))
-                        # devices such as AAstra phones will not re-query to
-                        # resolve the pointer, they expect the final IP to show up
-                        # in the response
-                        out.addAdditionalAnswer(dns.DNSText(service.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
-                        out.addAdditionalAnswer(dns.DNSService(service.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
-                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
-            else:
-                try:
-                    if out is None:
-                        out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
-
-                    # Answer A record queries for any service addresses we know
-                    if question.type == dns._TYPE_A or question.type == dns._TYPE_ANY:
-                        for service in self.services.values():
-                            if service.server == question.name.lower():
-                                out.addAnswer(msg, dns.DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
-
-                    service = self.services.get(question.name.lower(), None)
-                    if not service: 
-                        continue
-                    log.info( 'Question was matched to service' )
-
-                    if question.type == dns._TYPE_SRV or question.type == dns._TYPE_ANY:
-                        out.addAnswer(msg, dns.DNSService(question.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
-                    if question.type == dns._TYPE_TXT or question.type == dns._TYPE_ANY:
-                        out.addAnswer(msg, dns.DNSText(question.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
-                    if question.type == dns._TYPE_SRV:
-                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
-                except Exception, err:
-                    log.error(
-                        'Error handling query: %s',traceback.format_exc()
-                    )
-
+            if out is None:
+                out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
+            try:
+                self.responses( question, msg, out )
+            except Exception, err:
+                log.error(
+                    'Error handling query: %s',traceback.format_exc()
+                )
         if out is not None and out.answers:
             out.id = msg.id
             self.send(out, addr, port)
             log.info( 'Sent response' )
-#        elif out is not None:
-#            log.debug( "Out was created, but got no answers" )
         else:
-            log.debug( 'No answer for %s', [q for q in msg.questions] )
+            log.debug( 'No (newer) answer for %s', [q for q in msg.questions] )
+    
+    def responses( self, question, msg, out ):
+        """Adds all responses to out which match the given question
+        
+        Note that the incoming query may suppress our responses 
+        by having cache times higher than our records.  That is,
+        out.answers may be null even if we have the records that 
+        match the query.
+        """
+        log.info( 'Question: %s', question )
+        for service in self.services.values():
+            if question.type == dns._TYPE_PTR:
+                if question.name in (service.type,service.name):
+                    log.info( 'Service query found %s', service.name )
+                    out.addAnswer(msg, dns.DNSPointer(question.name, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, service.name))
+                    # devices such as AAstra phones will not re-query to
+                    # resolve the pointer, they expect the final IP to show up
+                    # in the response
+                    out.addAdditionalAnswer(dns.DNSText(service.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
+                    out.addAdditionalAnswer(dns.DNSService(service.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
+                    out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
+            else:
+                if question.type in (dns._TYPE_A, dns._TYPE_AAAA):
+                    if service.server == question.name.lower():     
+                        out.addAnswer(msg, dns.DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
+                if question.type in (dns._TYPE_SRV, dns._TYPE_ANY):
+                    if question.name in (service.name,service.server,service.type):
+                        out.addAnswer(msg, dns.DNSService(question.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
+                if question.type in (dns._TYPE_TXT, dns._TYPE_ANY):
+                    if question.name in (service.name,service.server,service.type):
+                        out.addAnswer(msg, dns.DNSText(question.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
+                if question.type in (dns._TYPE_SRV,dns._TYPE_ANY ):
+                    # srv queries need the address for aastra-style single query
+                    if question.name in (service.name,service.server,service.type):
+                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
 
     def send(self, out, addr = dns._MDNS_ADDR, port = dns._MDNS_PORT):
         """Sends an outgoing packet."""
