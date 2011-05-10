@@ -22,8 +22,11 @@
 
 """
 
+"""0.12.1 update - support for certain broken clients (e.g. aastra phones),
+         partial support for negotiating host-names (probe operation)."""
+
 """0.12 update - allow selection of binding interface
-         typo fix - Thanks A. M. Kuchlingi
+         typo fix - Thanks A. M. Kuchling
          removed all use of word 'Rendezvous' - this is an API change"""
 
 """0.11 update - correction to comments for addListener method
@@ -76,7 +79,7 @@
 
 __author__ = "Paul Scott-Murphy"
 __email__ = "paul at scott dash murphy dot com"
-__version__ = "0.12"
+__version__ = "0.12.1"
 
 #from Zeroconf import dns
 #from Zeroconf import mcastsocket
