@@ -147,7 +147,10 @@ class Listener(object):
         except dns.NonLocalNameException, err:
             """We ignore mdns queries for non-local addresses, such as in-addr.arpa."""
         except dns.DNSError, err:
-            log.error( "Malformed packet from %s (%s), ignored: %r", addr, err, data )
+            log.error( 
+                "Malformed packet from %s (%s), ignored: %r", 
+                addr, err, data 
+            )
         else:
             if msg.isQuery():
                 # Always multicast responses
@@ -414,15 +417,20 @@ class Zeroconf(object):
                 self.wait(nextTime - now)
                 now = dns.currentTimeMillis()
                 continue
-            out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
-            out.addAnswerAtTime(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, ttl, info.name), 0)
-            out.addAnswerAtTime(dns.DNSService(info.name, dns._TYPE_SRV, dns._CLASS_IN, ttl, info.priority, info.weight, info.port, info.server), 0)
-            out.addAnswerAtTime(dns.DNSText(info.name, dns._TYPE_TXT, dns._CLASS_IN, ttl, info.text), 0)
-            if info.address:
-                out.addAnswerAtTime(dns.DNSAddress(info.server, dns._TYPE_A, dns._CLASS_IN, ttl, info.address), 0)
+            out = self.serviceAnnouncement( info, ttl )
             self.send(out)
             i += 1
             nextTime += _REGISTER_TIME
+    
+    @classmethod
+    def serviceAnnouncement( cls, info, ttl=dns._DNS_TTL ):
+        out = dns.DNSOutgoing(dns._FLAGS_QR_RESPONSE | dns._FLAGS_AA)
+        out.addAnswerAtTime(dns.DNSPointer(info.type, dns._TYPE_PTR, dns._CLASS_IN, ttl, info.name), 0)
+        out.addAnswerAtTime(dns.DNSService(info.name, dns._TYPE_SRV, dns._CLASS_IN, ttl, info.priority, info.weight, info.port, info.server), 0)
+        out.addAnswerAtTime(dns.DNSText(info.name, dns._TYPE_TXT, dns._CLASS_IN, ttl, info.text), 0)
+        if info.address:
+            out.addAnswerAtTime(dns.DNSAddress(info.server, dns._TYPE_A, dns._CLASS_IN, ttl, info.address), 0)
+        return out
 
     def unregisterService(self, info):
         """Unregister a service."""
@@ -609,7 +617,7 @@ class Zeroconf(object):
     def send(self, out, addr = dns._MDNS_ADDR, port = dns._MDNS_PORT):
         """Sends an outgoing packet."""
         # This is a quick test to see if we can parse the packets we generate
-        #temp = dns.DNSIncoming(out.packet())
+        # temp = dns.DNSIncoming(out.packet())
         try:
             packet = out.packet()
             bytes_sent = self.socket.sendto(packet, 0, (addr, port))

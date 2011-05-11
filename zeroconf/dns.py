@@ -130,6 +130,13 @@ _TYPES = { _TYPE_A : "a",
            _TYPE_NSEC : "nsec",
            _TYPE_ANY : "any" }
 
+_IGNORED_TYPES = {
+    0: "Ignoring Invalid DNS query type (0)",
+    _TYPE_NS: "Ignoring Name Server (NS) query",
+    _TYPE_NSEC: "Ignoring Next Secure Record (NSEC) query",
+    _TYPE_MF: "Ignoring Obsoleted Mail Forwarding (MF) query",
+}
+
 # utility functions
 
 def currentTimeMillis():
@@ -230,6 +237,12 @@ class DNSRecord(DNSEntry):
         DNSEntry.__init__(self, name, type_, clazz)
         self.ttl = ttl
         self.created = currentTimeMillis()
+        if '..' in name:
+            raise DNSNameError( '.. not allowed in dns names: %r'%(  name ))
+        if name.startswith( '.' ):
+            raise DNSNameError( 'dns names cannot start with .: %r'%(  name ))
+        if not type_ in _TYPES:
+            raise RuntimeError( type_ )
 
     def __eq__(self, other):
         """Tests equality as per DNSRecord"""
@@ -492,7 +505,9 @@ class DNSIncoming(object):
                 rec = None
                 if info[0] == _TYPE_A:
                     rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(4))
-                elif info[0] == _TYPE_CNAME or info[0] == _TYPE_PTR:
+                elif info[0] == _TYPE_CNAME:
+                    rec = DNSPointer(domain, info[0], info[1], info[2], domain)
+                elif info[0] == _TYPE_PTR:
                     rec = DNSPointer(domain, info[0], info[1], info[2], self.readName())
                 elif info[0] == _TYPE_TXT:
                     rec = DNSText(domain, info[0], info[1], info[2], self.readString(info[3]))
@@ -502,10 +517,8 @@ class DNSIncoming(object):
                     rec = DNSHinfo(domain, info[0], info[1], info[2], self.readCharacterString(), self.readCharacterString())
                 elif info[0] == _TYPE_AAAA:
                     rec = DNSAddress(domain, info[0], info[1], info[2], self.readString(16))
-                elif info[0] == _TYPE_MF:
-                    log.debug("Obsoleted Mail Forwarding (MF) type")
-                elif info[0] == _TYPE_NSEC:
-                    log.debug("Ignoring DNSSEC record type")
+                elif info[0] in _IGNORED_TYPES:
+                    log.debug( "%s", _IGNORED_TYPES[info[0]])
                 else:
                     # Try to ignore types we don't know about
                     # this may mean the rest of the name is
@@ -514,13 +527,13 @@ class DNSIncoming(object):
                     # encountered need to be parsed properly.
                     #
                     log.warn(
-                        "Unknown DNS query type: %s", info
+                        "Unknown DNS query type: %s %r", info, self.data
                     )
-
                 if rec is not None:
                     self.answers.append(rec)
             except Exception, err:
-                log.warn( "Failure on record type_ %s, ignoring: %s", info[0], err )
+                log.debug( "Failure on record type_ %s, ignoring: %s", info[0], err )
+                log.debug( "%s", traceback.format_exc())
 
     def isQuery(self):
         """Returns true if this is a query"""
@@ -562,7 +575,7 @@ class DNSIncoming(object):
                     raise DNSNameError( "Bad domain name (circular) at char %s", off )
                 first = off
             else:
-                raise DNSNameError( "Bad domain name (unknown encoding type) at " + str(off) )
+                raise DNSNameError( "Bad domain name (unknown encoding type %r) at %s"%( t,str(off) ))
 
         if next >= 0:
             self.offset = next
@@ -806,7 +819,11 @@ class ServiceInfo(object):
         server: fully qualified name for service host (defaults to name)"""
 
         if not name.endswith(type_):
-            raise BadTypeInNameException( 'Name: %r does not end with type %r', name, type )
+            raise BadTypeInNameException( 'Name: %r does not end with type %r', name, type_ )
+        if type_.startswith( '.' ):
+            raise DNSNameError( 'Types cannot start with the . character %r'%( type_ ))
+        if '..' in type_:
+            raise DNSNameError( 'Types cannot contain .. %r'%( type_ ))
         self.type = type_
         self.name = name
         self.address = address
@@ -1023,6 +1040,7 @@ class ServerNameWatcher( object ):
                 if next <= now:
                     out = DNSOutgoing(_FLAGS_QR_QUERY)
                     out.addQuestion(DNSQuestion(self.name, _TYPE_A, _CLASS_IN))
+                    out.addAnswerAtTime(zeroconf.cache.getByDetails(self.name, _TYPE_A, _CLASS_IN), now)
                     zeroconf.send(out)
                     next = now + delay
                     delay = delay * 2

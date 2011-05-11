@@ -1,22 +1,22 @@
 """ Multicast DNS Service Discovery for Python, v0.12
-    Copyright (C) 2003, Paul Scott-Murphy
+	Copyright (C) 2003, Paul Scott-Murphy
 
-    This module provides a unit test suite for the Multicast DNS
-    Service Discovery for Python module.
+	This module provides a unit test suite for the Multicast DNS
+	Service Discovery for Python module.
 
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+	This library is free software; you can redistribute it and/or
+	modify it under the terms of the GNU Lesser General Public
+	License as published by the Free Software Foundation; either
+	version 2.1 of the License, or (at your option) any later version.
 
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-    Lesser General Public License for more details.
+	This library is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+	Lesser General Public License for more details.
 
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+	You should have received a copy of the GNU Lesser General Public
+	License along with this library; if not, write to the Free Software
+	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
 """
 
@@ -26,7 +26,7 @@ __version__ = "0.12"
 
 from zeroconf import dns as r
 from zeroconf import mdns
-import unittest
+import unittest,socket
 
 
 class PacketGeneration(unittest.TestCase):
@@ -155,6 +155,19 @@ class Names(unittest.TestCase):
 		generated.addQuestion(question)
 		parsed = r.DNSIncoming(generated.packet())
 
+	def testServiceDiscoverMessage(self):
+		info = mdns.ServiceInfo(
+			'_test._tcp.local.',
+			'blue._test._tcp.local.',
+			socket.inet_aton('127.0.0.1'),
+			80,
+			0,
+			0,
+			{},
+			server = 'myhost.local',
+		)
+		out = mdns.Zeroconf.serviceAnnouncement( info )
+		temp = r.DNSIncoming(out.packet())
 
 class Framework(unittest.TestCase):
 
@@ -163,4 +176,6 @@ class Framework(unittest.TestCase):
 		rv.close()
 
 if __name__ == '__main__':
+	import logging 
+	logging.basicConfig( level=logging.DEBUG )
 	unittest.main()
