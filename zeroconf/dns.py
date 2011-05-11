@@ -43,6 +43,10 @@ _REGISTER_TIME = 225
 _LISTENER_TIME = 200
 _BROWSER_TIME = 500
 
+_PROBE_TIME = 250
+_PROBE_THROTTLED_TIME = 5000
+_PROBE_TIMEOUT = 800
+
 # Some DNS constants
 
 _MDNS_ADDR = '224.0.0.251'
@@ -134,20 +138,23 @@ def currentTimeMillis():
 
 # Exceptions
 
-class NonLocalNameException(Exception):
+class DNSError( Exception ):
+    """Base class for all DNS errors"""
+
+class DNSNameError( DNSError ):
+    """Name/type related errors"""
+class NonLocalNameException(DNSNameError):
+    pass
+class NonUniqueNameException(DNSNameError):
+    pass
+class NamePartTooLongException(DNSNameError):
+    pass
+class BadTypeInNameException(DNSNameError):
     pass
 
-class NonUniqueNameException(Exception):
+class AbstractMethodException(DNSError):
     pass
 
-class NamePartTooLongException(Exception):
-    pass
-
-class AbstractMethodException(Exception):
-    pass
-
-class BadTypeInNameException(Exception):
-    pass
 
 # implementation classes
 
@@ -204,7 +211,7 @@ class DNSQuestion(DNSEntry):
 
     def __init__(self, name, type_, clazz):
         if not name.endswith(".local."):
-            raise NonLocalNameException
+            raise NonLocalNameException( 'No .local. suffix in %r'%(name,) )
         DNSEntry.__init__(self, name, type_, clazz)
 
     def answeredBy(self, rec):
@@ -271,7 +278,7 @@ class DNSRecord(DNSEntry):
 
     def write(self, out):
         """Abstract method"""
-        raise AbstractMethodException
+        raise AbstractMethodException( 'write' )
 
     def toString(self, other):
         """String representation with addtional information"""
@@ -552,10 +559,10 @@ class DNSIncoming(object):
                     next = off + 1
                 off = ((len_ & 0x3F) << 8) | ord(self.data[off])
                 if off >= first:
-                    raise "Bad domain name (circular) at " + str(off)
+                    raise DNSNameError( "Bad domain name (circular) at char %s", off )
                 first = off
             else:
-                raise "Bad domain name at " + str(off)
+                raise DNSNameError( "Bad domain name (unknown encoding type) at " + str(off) )
 
         if next >= 0:
             self.offset = next
@@ -640,7 +647,7 @@ class DNSOutgoing(object):
         utfstr = s.encode('utf-8')
         length = len(utfstr)
         if length > 64:
-            raise NamePartTooLongException
+            raise NamePartTooLongException( utfstr )
         self.writeByte(length)
         self.writeString(utfstr, length)
 
@@ -799,7 +806,7 @@ class ServiceInfo(object):
         server: fully qualified name for service host (defaults to name)"""
 
         if not name.endswith(type_):
-            raise BadTypeInNameException
+            raise BadTypeInNameException( 'Name: %r does not end with type %r', name, type )
         self.type = type_
         self.name = name
         self.address = address
@@ -1001,9 +1008,10 @@ class ServerNameWatcher( object ):
         self.name = name
         self.address = None
         self.ignore = ignore
-    def request( self, zeroconf, timeout=3000 ):
+        if ignore:
+            self.ignore = [socket.inet_aton( a ) for a in ignore]
+    def request( self, zeroconf, timeout=_PROBE_TIMEOUT, delay=_PROBE_TIME ):
         now = currentTimeMillis()
-        delay = _LISTENER_TIME
         next = now + delay
         last = now + timeout
         result = 0
@@ -1014,7 +1022,7 @@ class ServerNameWatcher( object ):
                     return 0
                 if next <= now:
                     out = DNSOutgoing(_FLAGS_QR_QUERY)
-                    out.addQuestion(DNSQuestion(self.name, _TYPE_ANY, _CLASS_IN))
+                    out.addQuestion(DNSQuestion(self.name, _TYPE_A, _CLASS_IN))
                     zeroconf.send(out)
                     next = now + delay
                     delay = delay * 2
@@ -1030,7 +1038,8 @@ class ServerNameWatcher( object ):
         if record is not None and not record.isExpired(now):
             if record.name == self.name:
                 if (
-                    self.ignore and getattr(record,'address',None) in self.ignore
+                    self.ignore and 
+                    (getattr(record,'address',None) not in self.ignore)
                 ) or (not self.ignore):
                     # something is using this name, whether for a server-name or not...
                     if self.address in (True,None):

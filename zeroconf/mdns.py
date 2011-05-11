@@ -142,24 +142,30 @@ class Listener(object):
                 log.info( 'Error on recvfrom: %s', err )
             return None
         self.data = data
-        msg = dns.DNSIncoming(data)
-        if msg.isQuery():
-            # Always multicast responses
-            #
-            if port == dns._MDNS_PORT:
-                self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
-            # If it's not a multicast query, reply via unicast
-            #
-            # and multicast
-            elif port == dns._DNS_PORT:
-                self.zeroconf.handleQuery(msg, addr, port)
-                self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
-            else:
-                log.error(
-                    "Unknown port: %s", port
-                )
+        try:
+            msg = dns.DNSIncoming(data)
+        except dns.NonLocalNameException, err:
+            """We ignore mdns queries for non-local addresses, such as in-addr.arpa."""
+        except dns.DNSError, err:
+            log.error( "Malformed packet from %s (%s), ignored: %r", addr, err, data )
         else:
-            self.zeroconf.handleResponse(msg)
+            if msg.isQuery():
+                # Always multicast responses
+                #
+                if port == dns._MDNS_PORT:
+                    self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
+                # If it's not a multicast query, reply via unicast
+                #
+                # and multicast
+                elif port == dns._DNS_PORT:
+                    self.zeroconf.handleQuery(msg, addr, port)
+                    self.zeroconf.handleQuery(msg, dns._MDNS_ADDR, dns._MDNS_PORT)
+                else:
+                    log.error(
+                        "Unknown port: %s", port
+                    )
+            else:
+                self.zeroconf.handleResponse(msg)
 
 class Reaper(threading.Thread):
     """A Reaper is used by this module to remove cache entries that
@@ -315,7 +321,7 @@ class Zeroconf(object):
         self.condition.notifyAll()
         self.condition.release()
     
-    def probeName( self, name, timeout=250 ):
+    def probeName( self, name, timeout=dns._PROBE_TIMEOUT ):
         """Probe host-names until we find an unoccupied one
         
         name -- name from which to construct the host-name, note that this 
@@ -346,27 +352,27 @@ class Zeroconf(object):
                 count += 1
                 if count > 2**16:
                     raise RuntimeError( """Unable to find an unused name %s"""%( name, ))
+        delay = dns._PROBE_TIME
         for failures,name in enumerate(names(name)):
-            for i in range(3):
-                address = self.getServerAddress( 
-                    name, timeout, 
-                    ignore=[self.intf] # our own address is *not* to be considered
-                )
-                if address:
-                    break
+            address = self.getServerAddress( 
+                name, timeout,
+                delay = delay,
+                ignore=[self.intf] # our own address is *not* to be considered
+            )
             if failures > 5:
                 # mDNS requires huge slowdown after 15 failures
                 # to prevent flooding network...
                 log.warn( 
                     "Throttling host-name configuration to prevent network flood"
                 )
-                timeout = 5.0
+                delay = dns._PROBE_THROTTLED_TIME
+                timeout = 2.5 * delay
             if not address:
                 return name
-    def getServerAddress(self, name, timeout=3000, ignore=None):
+    def getServerAddress(self, name, timeout=dns._PROBE_TIMEOUT, ignore=None, delay=dns._PROBE_TIME):
         """Returns given server-name record or None on timeout"""
         info = dns.ServerNameWatcher( name, ignore=ignore )
-        if info.request( self, timeout ):
+        if info.request( self, timeout, delay=delay ):
             return info.address
         return None
 
@@ -477,7 +483,7 @@ class Zeroconf(object):
                         info.name = info.name + ".[" + info.address + ":" + info.port + "]." + info.type
                         self.checkService(info)
                         return
-                    raise dns.NonUniqueNameException
+                    raise dns.NonUniqueNameException( info.name )
             if now < nextTime:
                 self.wait(nextTime - now)
                 now = dns.currentTimeMillis()
@@ -586,7 +592,7 @@ class Zeroconf(object):
                     out.addAdditionalAnswer(dns.DNSService(service.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
                     out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
             else:
-                if question.type in (dns._TYPE_A, dns._TYPE_AAAA):
+                if question.type in (dns._TYPE_A, ):
                     if service.server == question.name.lower():     
                         out.addAnswer(msg, dns.DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
                 if question.type in (dns._TYPE_SRV, dns._TYPE_ANY):
