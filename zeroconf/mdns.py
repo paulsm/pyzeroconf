@@ -362,7 +362,7 @@ class Zeroconf(object):
             if failures > 5:
                 # mDNS requires huge slowdown after 15 failures
                 # to prevent flooding network...
-                log.warn( 
+                log.info( 
                     "Throttling host-name configuration to prevent network flood"
                 )
                 delay = dns._PROBE_THROTTLED_TIME
