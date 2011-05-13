@@ -85,16 +85,16 @@ class Engine(threading.Thread):
                     if err[0] in (errno.EWOULDBLOCK,errno.EINTR,errno.EAGAIN):
                         pass 
                     else:
-                        log.warn( 'Failure on select, ignoring: %s', err )
+                        log.info( 'Failure on select, ignoring: %s', err )
                 except Exception, err:
-                    log.warn( 'Select failure, ignored: %s', err )
+                    log.info( 'Select failure, ignored: %s', err )
                 else:
                     for sock in rr:
                         try:
                             self.readers[sock].handle_read()
                         except Exception, err:
                             # Ignore errors that occur on shutdown
-                            log.error( 'Error handling read: %s', err )
+                            log.info( 'Error handling read: %s', err )
                             log.debug( 'Traceback: %s', traceback.format_exc())
 
     def getReaders(self):
@@ -575,7 +575,7 @@ class Zeroconf(object):
         if out is not None and out.answers:
             out.id = msg.id
             self.send(out, addr, port)
-            log.info( 'Sent response' )
+            log.debug( 'Sent response' )
         else:
             log.debug( 'No (newer) answer for %s', [q for q in msg.questions] )
     
@@ -587,11 +587,11 @@ class Zeroconf(object):
         out.answers may be null even if we have the records that 
         match the query.
         """
-        log.info( 'Question: %s', question )
+        log.debug( 'Question: %s', question )
         for service in self.services.values():
             if question.type == dns._TYPE_PTR:
                 if question.name in (service.type,service.name):
-                    log.info( 'Service query found %s', service.name )
+                    log.debug( 'Service query found %s', service.name )
                     out.addAnswer(msg, dns.DNSPointer(question.name, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, service.name))
                     # devices such as AAstra phones will not re-query to
                     # resolve the pointer, they expect the final IP to show up

@@ -526,7 +526,7 @@ class DNSIncoming(object):
                     # so this is left for debugging.  New types
                     # encountered need to be parsed properly.
                     #
-                    log.warn(
+                    log.info(
                         "Unknown DNS query type: %s %r", info, self.data
                     )
                 if rec is not None:
