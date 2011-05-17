@@ -3,6 +3,22 @@
 """
 import socket,os,sys,select,logging
 from zeroconf import mcastsocket
+try:
+    from lxml import etree
+except ImportError:
+    try:
+        # Python 2.5
+        import xml.etree.cElementTree as etree
+    except ImportError:
+        try:
+          # Python 2.5
+            import xml.etree.ElementTree as etree
+        except ImportError:
+            try:
+                # normal cElementTree install
+                import cElementTree as etree
+            except ImportError:
+                import elementtree.ElementTree as etree
 
 GROUP = '239.255.255.250'
 PORT = 1900
@@ -12,10 +28,28 @@ HOST: %(ip)s:%(port)s
 MAN: ssdp:discover
 MX: 10
 ST: ssdp:all"""
+query = """M-SEARCH * HTTP/1.1
+HOST: %(ip)s:%(port)s
+MAN: ssdp:discover
+MX: 10
+ST: upnp:rootdevice"""
+
+def describe_device( record, indent = '' ):
+    print 'Found: ', record.find( 'friendlyName' ).text
+    for service in record.find( 'serviceList' ):
+        print indent, 'Service:', service.find( 'serviceType' ).text
+    if record.find( 'deviceList' ):
+        for device in record.find( 'deviceList' ):
+            describe_device( device, indent + '  ' )
+
+
+def parse( result ):
+    root = etree.fromstring( result )
+    describe_device(  root.find( 'device' ) )
 
 def handle( sock, data, address ):
     """Handle incoming message about service"""
-    print 'received from %s:%s: '%(address,)
+    print 'received from %s: '%(address,)
     print data
 
 # :schemas-upnp-org:device:InternetGatewayDevice:1
