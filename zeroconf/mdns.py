@@ -46,6 +46,8 @@ _CHECK_TIME = 175
 _REGISTER_TIME = 225
 _LISTENER_TIME = 200
 _BROWSER_TIME = 500
+# Minimum time before sending duplicate message...
+_MINIMUM_REPEAT_TIME = 200
 
 class Engine(threading.Thread):
     """An engine wraps read access to sockets, allowing objects that
@@ -294,6 +296,7 @@ class Zeroconf(object):
         mcastsocket.join_group( self.socket, dns._MDNS_ADDR )
 
         self.listeners = []
+        self.suppression_queue = []
         self.browsers = []
         self.services = {}
 
@@ -334,7 +337,9 @@ class Zeroconf(object):
         
         TODO: maybe make this part of checkService instead?  Same basic 
         operation, it's just looking for unique server name instead of unique 
-        service name.
+        service name.  The spec explicitly seems to expect that, but the 
+        current checkService isn't doing most of the probe operations as 
+        defined.
         
         http://files.multicastdns.org/draft-cheshire-dnsext-multicastdns.txt  Section 8
         
@@ -615,15 +620,35 @@ class Zeroconf(object):
                         out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
 
     def send(self, out, addr = dns._MDNS_ADDR, port = dns._MDNS_PORT):
-        """Sends an outgoing packet."""
-        # This is a quick test to see if we can parse the packets we generate
-        # temp = dns.DNSIncoming(out.packet())
-        try:
-            packet = out.packet()
-            bytes_sent = self.socket.sendto(packet, 0, (addr, port))
-        except:
-            # Ignore this, it may be a temporary loss of network connection
-            pass
+        """Sends an outgoing packet.
+        
+        Note: this method is instrumented to provide low-level 
+        prevention of packet floods by throttling same-message 
+        sending to once per _MINIMUM_REPEAT_TIME ms.  That will 
+        fail for a "regular" DNS server, which should also use 
+        the addr/port combo...
+        """
+        current = dns.currentTimeMillis()
+        log.info( '%s messages in suppression_queue', len(self.suppression_queue))
+        while self.suppression_queue and self.suppression_queue[0][0] < current:
+            log.debug( 'Removing...' )
+            self.suppression_queue.pop(0)
+        packet = out.packet()
+        sent = False
+        for i,(expire,old_packet) in enumerate(self.suppression_queue[:]):
+            if old_packet == packet:
+                log.warn( 'Dropping to prevent flood' )
+                sent = True
+        if not sent:
+            try:
+                sent = self.socket.sendto(packet, 0, (addr, port))
+            except:
+                # Ignore this, it may be a temporary loss of network connection
+                pass
+        self.suppression_queue.append(
+            (current + _MINIMUM_REPEAT_TIME, packet )
+        )
+        return sent
 
     def close(self):
         """Ends the background threads, and prevent this instance from
@@ -635,3 +660,4 @@ class Zeroconf(object):
             self.unregisterAllServices()
             mcastsocket.leave_group( self.socket, dns._MDNS_ADDR )
             self.socket.close()
+
