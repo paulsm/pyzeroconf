@@ -80,7 +80,7 @@
 
 __author__ = "Paul Scott-Murphy"
 __email__ = "paul at scott dash murphy dot com"
-__version__ = "0.12.2"
+__version__ = "0.12.3"
 
 #from Zeroconf import dns
 #from Zeroconf import mcastsocket
