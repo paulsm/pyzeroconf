@@ -1033,13 +1033,13 @@ class ServerNameWatcher( object ):
         last = now + timeout
         result = 0
         try:
-            zeroconf.addListener(self, DNSQuestion( self.name, _TYPE_ANY, _CLASS_IN ))
+            zeroconf.addListener(self, DNSQuestion( self.name.lower(), _TYPE_ANY, _CLASS_IN ))
             while self.address is None:
                 if last <= now:
                     return 0
                 if next <= now:
                     out = DNSOutgoing(_FLAGS_QR_QUERY)
-                    out.addQuestion(DNSQuestion(self.name, _TYPE_A, _CLASS_IN))
+                    out.addQuestion(DNSQuestion(self.name.lower(), _TYPE_A, _CLASS_IN))
                     out.addAnswerAtTime(zeroconf.cache.getByDetails(self.name, _TYPE_A, _CLASS_IN), now)
                     zeroconf.send(out)
                     next = now + delay

@@ -595,7 +595,7 @@ class Zeroconf(object):
         log.debug( 'Question: %s', question )
         for service in self.services.values():
             if question.type == dns._TYPE_PTR:
-                if question.name in (service.type,service.name):
+                if question.name.lower() in (service.type.lower(),service.name.lower()):
                     log.debug( 'Service query found %s', service.name )
                     out.addAnswer(msg, dns.DNSPointer(question.name, dns._TYPE_PTR, dns._CLASS_IN, dns._DNS_TTL, service.name))
                     # devices such as AAstra phones will not re-query to
