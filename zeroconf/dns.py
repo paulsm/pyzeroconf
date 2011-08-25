@@ -1019,7 +1019,54 @@ class ServiceInfo(object):
         result += "]"
         return result
 
-
+class ProbeWatcher( object ):
+    """Watches for response to a probe (query)
+    
+    
+    """
+    def __init__( self, query ):
+        """Probe for any conflict in query (DNSOutgoing)"""
+        assert hasattr( query, 'questions' ), query
+        self.query = query 
+        self.found = False
+        self.records = []
+    def request( self, zeroconf, timeout=_PROBE_TIMEOUT, delay=_PROBE_TIME ):
+        """Perform probe operations for our query"""
+        now = currentTimeMillis()
+        next = now + delay
+        last = now + timeout
+        result = 0
+        try:
+            for question in self.query.questions:
+                zeroconf.addListener(self)
+            while not self.found:
+                if last <= now:
+                    break
+                if next <= now:
+                    out = DNSOutgoing(_FLAGS_QR_QUERY)
+                    for question in self.query.questions:
+                        out.addQuestion( question )
+                        out.addAnswerAtTime(
+                            zeroconf.cache.getByDetails(question.name, question.type, question.clazz), 
+                            now
+                        )
+                    zeroconf.send(out)
+                    next = now + delay
+                    # Note: non-standard, should here delay by delay without expanding for 3 queries *only*
+                    delay = delay * 2
+                zeroconf.wait(min(next, last) - now)
+                now = currentTimeMillis()
+        finally:
+            zeroconf.removeListener( self )
+        return self.records
+    def updateRecord(self, zeroconf, now, record):
+        """Updates service information from a DNS record"""
+        if record is not None and not record.isExpired(now):
+            for question in self.query.questions:
+                if question.answeredBy( record ):
+                    self.found = True 
+                    self.records.append( record )
+        
 class ServerNameWatcher( object ):
     def __init__(self, name, ignore=None ):
         self.name = name

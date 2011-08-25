@@ -350,6 +350,20 @@ class Zeroconf(object):
         Note: you *must* advertise your services *before* you issue this 
         query, as race conditions will occur if two machines booted at
         the same time try to resolve the same name.
+        
+        Steps:
+        
+            wait( random.randint( 0,250 ) ) # msg
+            probe( question ) # 3 queries at 0, 250, 500 then wait another 250 for response 
+            if response: # conflict
+                mutate( question )
+                if conflict_count > 15: # within ten seconds
+                    wait( 5000 )
+                else:
+                    wait( random.randint( 0, 1000))
+            else:
+                return query
+        
         """
         def names( name ):
             yield name
