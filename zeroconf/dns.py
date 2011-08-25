@@ -941,13 +941,13 @@ class ServiceInfo(object):
         """Updates service information from a DNS record"""
         if record is not None and not record.isExpired(now):
             if record.type == _TYPE_A:
-                if record.name in (self.name,self.server):
+                if record.name.lower() in (self.name.lower(),self.server.lower()):
                     log.debug( 'Got A record for %s', record.name )
                     self.address = record.address
                 else:
                     log.debug( 'Got A record for %s, wanted %s', record.name, self.name )
             elif record.type == _TYPE_SRV:
-                if record.name == self.name:
+                if record.name.lower() == self.name.lower():
                     log.debug( 'Got SRV record for %s', record.name )
                     self.server = record.server
                     self.port = record.port
@@ -957,7 +957,7 @@ class ServiceInfo(object):
                     self.updateRecord(zeroconf, now, zeroconf.cache.getByDetails(self.server, _TYPE_A, _CLASS_IN))
                 
             elif record.type == _TYPE_TXT:
-                if record.name == self.name:
+                if record.name.lower() == self.name.lower():
                     log.debug( 'Got TXT record for %s', record.name )
                     self.setText(record.text)
 

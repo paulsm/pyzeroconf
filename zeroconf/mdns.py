@@ -594,7 +594,7 @@ class Zeroconf(object):
         if out is not None and out.answers:
             out.id = msg.id
             self.send(out, addr, port)
-            log.debug( 'Sent response' )
+            log.debug( 'Sent response: %s', out.answers )
         else:
             log.debug( 'No (newer) answer for %s', [q for q in msg.questions] )
     
@@ -615,23 +615,52 @@ class Zeroconf(object):
                     # devices such as AAstra phones will not re-query to
                     # resolve the pointer, they expect the final IP to show up
                     # in the response
-                    out.addAdditionalAnswer(dns.DNSText(service.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
-                    out.addAdditionalAnswer(dns.DNSService(service.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
-                    out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
+                    out.addAdditionalAnswer(dns.DNSText(
+                        service.name, dns._TYPE_TXT, 
+                        dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                        dns._DNS_TTL, service.text
+                    ))
+                    out.addAdditionalAnswer(dns.DNSService(
+                        service.name, dns._TYPE_SRV, 
+                        dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, 
+                        service.priority, service.weight, service.port, service.server
+                    ))
+                    out.addAdditionalAnswer(dns.DNSAddress(
+                        service.server, dns._TYPE_A, 
+                        dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                        dns._DNS_TTL, service.address
+                    ))
             else:
                 if question.type in (dns._TYPE_A, ):
-                    if service.server == question.name.lower():     
-                        out.addAnswer(msg, dns.DNSAddress(question.name, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
+                    if service.server.lower() == question.name.lower():     
+                        out.addAnswer(msg, dns.DNSAddress(
+                            question.name, dns._TYPE_A, 
+                            dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                            dns._DNS_TTL, service.address
+                        ))
                 if question.type in (dns._TYPE_SRV, dns._TYPE_ANY):
-                    if question.name in (service.name,service.server,service.type):
-                        out.addAnswer(msg, dns.DNSService(question.name, dns._TYPE_SRV, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.priority, service.weight, service.port, service.server))
+                    if question.name.lower() in (service.name.lower(),service.server.lower(),service.type.lower()):
+                        out.addAnswer(msg, dns.DNSService(
+                            question.name, dns._TYPE_SRV, 
+                            dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                            dns._DNS_TTL, service.priority, 
+                            service.weight, service.port, service.server
+                        ))
                 if question.type in (dns._TYPE_TXT, dns._TYPE_ANY):
-                    if question.name in (service.name,service.server,service.type):
-                        out.addAnswer(msg, dns.DNSText(question.name, dns._TYPE_TXT, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.text))
+                    if question.name.lower() in (service.name.lower(),service.server.lower(),service.type.lower()):
+                        out.addAnswer(msg, dns.DNSText(
+                            question.name, dns._TYPE_TXT, 
+                            dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                            dns._DNS_TTL, service.text
+                        ))
                 if question.type in (dns._TYPE_SRV,dns._TYPE_ANY ):
                     # srv queries need the address for aastra-style single query
-                    if question.name in (service.name,service.server,service.type):
-                        out.addAdditionalAnswer(dns.DNSAddress(service.server, dns._TYPE_A, dns._CLASS_IN | dns._CLASS_UNIQUE, dns._DNS_TTL, service.address))
+                    if question.name.lower() in (service.name.lower(),service.server.lower(),service.type.lower()):
+                        out.addAdditionalAnswer(dns.DNSAddress(
+                            service.server, dns._TYPE_A, 
+                            dns._CLASS_IN | dns._CLASS_UNIQUE, 
+                            dns._DNS_TTL, service.address
+                        ))
 
     def send(self, out, addr = dns._MDNS_ADDR, port = dns._MDNS_PORT):
         """Sends an outgoing packet.
@@ -651,7 +680,7 @@ class Zeroconf(object):
         sent = False
         for i,(expire,old_packet) in enumerate(self.suppression_queue[:]):
             if old_packet == packet:
-                log.warn( 'Dropping to prevent flood' )
+                log.debug( 'Dropping to prevent flood' )
                 sent = True
         if not sent:
             try:
