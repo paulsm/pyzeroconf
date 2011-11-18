@@ -288,7 +288,14 @@ class Zeroconf(object):
         multicast communications, listening and reaping threads."""
         globals()['_GLOBAL_DONE'] = 0
         if bindaddress is None:
-            self.intf = socket.gethostbyname(socket.gethostname())
+            try:
+                """Try to find the internet-routing interface so we don't get 127.0.0.1"""
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(('www.google.com',80))
+                self.intf = s.getsockname()[0]
+                s.close()
+            except:
+                self.intf = socket.gethostbyname(socket.gethostname())
             bindaddress = self.intf
         else:
             self.intf = bindaddress
