@@ -318,9 +318,12 @@ class DNSAddress(DNSRecord):
     def __repr__(self):
         """String representation"""
         try:
-            return socket.inet_ntoa(self.address)
+            return self.toString(socket.inet_ntoa(self.address))
         except:
-            return self.address
+            try:
+                return self.toString(socket.inet_ntop(socket.AF_INET6, self.address))
+            except:
+                return self.address
 
 class DNSHinfo(DNSRecord):
     """A DNS host information record"""
