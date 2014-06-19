@@ -1,0 +1,6 @@
+MANIFEST
+dist
+build
+*.pyc
+*.pyo
+*.e4?
