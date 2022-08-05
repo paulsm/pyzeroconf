@@ -114,12 +114,24 @@ def test_cumulative_timeouts_less_than_close_plus_buffer():
     ) < 1 + _CLOSE_TIMEOUT + _LOADED_SYSTEM_TIMEOUT
 
 
+@pytest.mark.asyncio
 async def test_run_coro_with_timeout() -> None:
     """Test running a coroutine with a timeout raises EventLoopBlocked."""
     loop = asyncio.get_event_loop()
+    task = None
+
+    async def _saved_sleep_task():
+        nonlocal task
+        task = asyncio.create_task(asyncio.sleep(0.2))
+        await task
 
     def _run_in_loop():
-        aioutils.run_coro_with_timeout(asyncio.sleep(0.3), loop, 0.1)
+        aioutils.run_coro_with_timeout(_saved_sleep_task(), loop, 0.1)
 
     with pytest.raises(EventLoopBlocked), patch.object(aioutils, "_LOADED_SYSTEM_TIMEOUT", 0.0):
         await loop.run_in_executor(None, _run_in_loop)
+
+    # ensure the thread is shutdown
+    task.cancel()
+    await asyncio.sleep(0)
+    await loop.shutdown_default_executor()
